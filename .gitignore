@@ -1,0 +1,4 @@
+.env
+split_pdfs/
+extracted_descriptions/
+*section_structure.json
