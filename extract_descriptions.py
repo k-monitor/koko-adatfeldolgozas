@@ -18,7 +18,8 @@ load_dotenv(dotenv_path=".env")
 excel_file = "xlsx/Elfogadott költségvetések.xlsx"
 
 years = [
-    {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf"},
+    # {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf"},
+    {"excel_sheet": "2017", "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf"},
 ]
 
 
@@ -120,7 +121,7 @@ def to_numbers(row):
     """
     Convert a row of strings to numbers.
     """
-    return [int(x) if x.isdigit() else x for x in row]
+    return [int(x) if str(x).isdigit() else x for x in row]
 
 
 def left_overlap(a, b):
@@ -254,10 +255,14 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    filtered_sections = section_structures[4:10]
+    filtered_sections = section_structures[0:]
     # filtered_sections = [s for s in section_structures if s[0] == "IX. Helyi Önkormányzatok Támogatásai"]
 
     for title, section in tqdm(filtered_sections):
         section_number = from_roman_numeral(title.split(" ")[0].strip("."))
         pdf_file = section["file_path"]
-        extract_text_from_section(pdf_file, section_number, str_rows)
+        try:
+            extract_text_from_section(pdf_file, section_number, str_rows)
+        except Exception as e:
+            print(f"Error processing section {section_number}: {e}")
+            continue

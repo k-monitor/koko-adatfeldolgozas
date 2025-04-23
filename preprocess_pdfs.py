@@ -12,6 +12,7 @@ excel_file = "xlsx/Elfogadott költségvetések.xlsx"
 
 years = [
     {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf"},
+    {"excel_sheet": "2017", "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf"},
 ]
 
 
