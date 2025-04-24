@@ -43,10 +43,11 @@ def find_closest_function(functions, fid):
 def get_deduplicated_rows(df):
     numbered_rows = [
         to_numbers(row)
-        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1"]].itertuples(
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
             index=False, name=None
         )
     ]
+
     deduplicated_rows = []
     for i, row in enumerate(numbered_rows):
         prev_row = numbered_rows[i - 1] if i > 0 else None
@@ -142,11 +143,14 @@ for year in years:
         + df["ALCIM"].astype(int).astype(str)
         + "."
         + df["JOGCIM1"].astype(int).astype(str)
+        + "."
+        + df["JOGCIM2"].astype(int).astype(str)
     )
 
     df["fid"] = (
         df["fid"]
         .str.replace(r"\.0$", "", regex=True)
+        .replace(r"\.0$", "", regex=True)
         .replace(r"\.0$", "", regex=True)
         .replace(r"\.0$", "", regex=True)
         .replace(r"\.0$", "", regex=True)
@@ -165,27 +169,6 @@ for year in years:
     )
     print(f"Nulls after: {functions_null_mask.sum()}")
 
-    ahtts = get_functions(df, column="ÁHT-T")
-    print(f"Functions: {len(ahtts)}")
-    print(f"ÁHT-T: {df['ÁHT-T'].head(10)}")
-    ahtts_null_mask = df["ÁHT-T"].apply(
-        lambda x: not x
-        or (isinstance(x, str) and x.strip() == "NaN")
-        or (type(x) == float and math.isnan(x))
-    )
-    print(f"ÁHT-T before: {ahtts_null_mask.sum()}")
-
-    df["ÁHT-T"][ahtts_null_mask] = df["fid"][ahtts_null_mask].apply(
-        lambda x: find_closest_function(ahtts, x)
-    )
-    ahtts_null_mask = df["ÁHT-T"].apply(
-        lambda x: not x
-        or (isinstance(x, str) and x.strip() == "NaN")
-        or (type(x) == float and math.isnan(x))
-    )
-    print(f"ÁHT-T after: {ahtts_null_mask.sum()}")
-    df["ÁHT-T"] = df["ÁHT-T"].astype(str).str.replace(r"\.0$", "", regex=True)
-
     section_names = (
         df[[name_column, "FEJEZET"]]
         .groupby("FEJEZET")
@@ -197,11 +180,66 @@ for year in years:
     )
     section_names.index = section_names.index.astype(int).astype(str)
 
+
     deduplicated_rows = get_deduplicated_rows(df)
-    df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
     df = df[df["fid"].isin(deduplicated_rows)]
 
-    df_indoklas = pd.read_csv("descriptions.csv", index_col=0)
+
+    # sum the values in the columns 'spending', 'income', 'support', 'accumulated_spending', 'accumulated_income'
+    # for other columns take the first value
+    df = df.groupby("fid").agg(
+        {
+            "spending": "sum",
+            "income": "sum",
+            "support": "sum",
+            "accumulated_spending": "sum",
+            "accumulated_income": "sum",
+            "function": "first",
+
+            "ÁHT-T": "first",
+            "FEJEZET": "first",
+            "CIM": "first",
+            "ALCIM": "first",
+            "JOGCIM1": "first",
+            "JOGCIM2": "first",
+            name_column: "first",
+        }
+    ).reset_index()
+
+    # sort fid column to handle 11.10.1.2 and 11.10.1 like values
+
+    df = df.sort_values(
+        by=["fid"],
+        key=lambda x: x.str.split(".").apply(
+            lambda y: [int(i) for i in y] if isinstance(y, list) else y
+        ),
+    ).reset_index(drop=True)
+    
+
+    # ahtts = get_functions(df, column="ÁHT-T")
+    # print(f"Functions: {len(ahtts)}")
+    # print(f"ÁHT-T: {df['ÁHT-T'].head(10)}")
+    # ahtts_null_mask = df["ÁHT-T"].apply(
+    #     lambda x: not x
+    #     or (isinstance(x, str) and x.strip() == "NaN")
+    #     or (type(x) == float and math.isnan(x))
+    # )
+    # print(f"ÁHT-T before: {ahtts_null_mask.sum()}")
+
+    # df["ÁHT-T"][ahtts_null_mask] = df["fid"][ahtts_null_mask].apply(
+    #     lambda x: find_closest_function(ahtts, x)
+    # )
+    # ahtts_null_mask = df["ÁHT-T"].apply(
+    #     lambda x: not x
+    #     or (isinstance(x, str) and x.strip() == "NaN")
+    #     or (type(x) == float and math.isnan(x))
+    # )
+    # print(f"ÁHT-T after: {ahtts_null_mask.sum()}")
+    # df["ÁHT-T"] = df["ÁHT-T"].astype(str).str.replace(r"\.0$", "", regex=True)
+
+    df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
+
+    df_indoklas = pd.read_csv(f"descriptions_{excel_sheet}.csv", index_col=0)
     df_merged = pd.merge(df, df_indoklas, on="fid", how="left")
 
     dataset = df_merged[

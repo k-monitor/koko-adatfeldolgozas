@@ -2,6 +2,4 @@
 
 leírások összefűzése:
 ```bash
-cat $(ls extracted_descriptions/*.csv | sort) > descriptions.csv
-```
-
+cat description_header.txt $(ls extracted_descriptions/2017*.csv | sort) | grep -v "id,indoklás szöveg" > descriptions_2017.csv```
