@@ -19,12 +19,16 @@ load_dotenv(dotenv_path=".env")
 excel_file = "xlsx/Elfogadott költségvetések.xlsx"
 
 years = [
-    # {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf", name_column="NEV"},
     {
-        "excel_sheet": "2017",
-        "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
-        "name_column": "MEGNEVEZÉS",
+        "excel_sheet": "2016",
+        "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
+        "name_column": "NEV",
     },
+    # {
+    #     "excel_sheet": "2017",
+    #     "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
+    #     "name_column": "MEGNEVEZÉS",
+    # },
 ]
 
 
@@ -51,6 +55,9 @@ def generate(prompt, file_path, temp):
     ]
     generate_content_config = types.GenerateContentConfig(
         temperature=temp,
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=1024,
+        ),
         response_mime_type="application/json",
         response_schema=genai.types.Schema(
             type=genai.types.Type.OBJECT,
@@ -60,12 +67,12 @@ def generate(prompt, file_path, temp):
                     type=genai.types.Type.ARRAY,
                     items=genai.types.Schema(
                         type=genai.types.Type.OBJECT,
-                        required=["id", "indoklás szöveg"],
+                        required=["id", "text"],
                         properties={
                             "id": genai.types.Schema(
                                 type=genai.types.Type.STRING,
                             ),
-                            "indoklás szöveg": genai.types.Schema(
+                            "text": genai.types.Schema(
                                 type=genai.types.Type.STRING,
                             ),
                         },
@@ -270,11 +277,6 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
         if row.startswith(f"{section}.")
     ]
 
-    # print("prompt")
-    # print("---")
-    # print(prompt)
-    # print("---")
-
     for i in range(4):
         if i < 2:
             prompt = get_prompt(roman_section, filtered_rows, names)
@@ -287,12 +289,23 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
         temp = 0
         if i == 1:
             temp = 0.5
+        # print("prompt")
+        # print("---")
+        # print(prompt)
+        # print("---")
 
         generated = generate(prompt, pdf_file, temp)
         data = generated.parsed
 
         if data and "texts" in data and len(data["texts"]) > 0:
-            break
+            try:
+                success = [1 if len(t['text'].strip()) > 80 else 0 for t in data["texts"]]
+                print(f"Generated success: {success}")
+                if sum(success)/len(success) > 0.8:
+                    break
+            except Exception as e:
+                print(f"Error processing section {section}: {e}")
+                continue
         else:
             print(roman_section)
             print("No texts found in the response. Retrying...")
@@ -368,7 +381,7 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    filtered_sections = section_structures[14:]
+    filtered_sections = section_structures[0:]
     # filtered_sections = [s for s in section_structures if s[0] == "IX. Helyi Önkormányzatok Támogatásai"]
 
     for title, section in tqdm(filtered_sections):
