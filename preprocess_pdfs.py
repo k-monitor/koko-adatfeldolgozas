@@ -23,9 +23,13 @@ def find_section_boundaries(text_by_page, sections):
     for n, page in enumerate(text_by_page):
         cpage = page.replace("  ", " ").lower().strip()
         for section in sections:
-            if section.lower() in cpage and len(cpage) < 100:
+            if section.lower()[:30] in cpage and len(cpage) < 100:
                 if section not in section_start_pages:
                     section_start_pages[section] = n
+            elif section.lower()[:30] in cpage and len(cpage) < 500:
+                print(
+                    f"Section '{section}' found on page {n} but skipped due to length: {len(cpage)}"
+                )
 
     # Sort sections by their start page
     sorted_sections = sorted(section_start_pages.items(), key=lambda x: x[1])
