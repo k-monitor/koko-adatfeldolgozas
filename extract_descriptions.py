@@ -18,8 +18,12 @@ load_dotenv(dotenv_path=".env")
 excel_file = "xlsx/Elfogadott költségvetések.xlsx"
 
 years = [
-    # {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf"},
-    {"excel_sheet": "2017", "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf"},
+    # {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf", name_column="NEV"},
+    {
+        "excel_sheet": "2017",
+        "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
+        "name_column": "MEGNEVEZÉS",
+    },
 ]
 
 
@@ -138,7 +142,7 @@ def positive_length(a):
 def get_deduplicated_rows(df):
     numbered_rows = [
         to_numbers(row)
-        for row in df[[f"Unnamed: {n}" for n in range(3, 7)]].itertuples(
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
             index=False, name=None
         )
     ]
@@ -173,16 +177,15 @@ def get_deduplicated_rows(df):
     return str_rows
 
 
-def get_prompt(section, filtered_rows):
+def get_prompt(section, filtered_rows, names):
     return f"""
-Hierarchikusan strukturált költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned.
+Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
 
-Most minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
+Általában minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
 
-A fejezet a legmagasabb hierarchikus szint (római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
+A fejezet a legmagasabb hierarchikus szint (gyakran római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
 
-Formátum:
-Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím").
+Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím"). De az is előfordul, hogy az azonosító számok nem szerepelnek, csak a nevek. Ezeket a neveket is figyelembe kell venni.
 
 Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az egyéb magyarázó szövegeket, amik nem címhez tartoznak ne vedd bele.
 
@@ -190,18 +193,19 @@ Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelm
 
 Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
 
-Az id formátuma: fejezet.cím(.alcím.jocímek)
+Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
 Pl.: VI.1.2.3
 
 Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
 
-Lehet, hogy a dokumentum nem tartalmazza a kért részeket. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
+Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel.
 
-Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket: {", ".join(filtered_rows)}
+Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
+{"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
 """
 
 
-def extract_text_from_section(pdf_file, section, str_rows, part=None):
+def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
     roman_section = to_roman_numeral(section)
     filtered_rows = [
         f"{roman_section}.{'.'.join(row.split('.')[1:])}"
@@ -209,11 +213,20 @@ def extract_text_from_section(pdf_file, section, str_rows, part=None):
         if row.startswith(f"{section}.")
     ]
 
-    prompt = get_prompt(roman_section, filtered_rows)
+    prompt = get_prompt(roman_section, filtered_rows, names)
+    # print("prompt")
+    # print("---")
     # print(prompt)
+    # print("---")
 
-    generated = generate(prompt, pdf_file)
-    data = generated.parsed
+    while True:
+        generated = generate(prompt, pdf_file)
+        data = generated.parsed
+        if data and "texts" in data and len(data["texts"]) > 0:
+            break
+        else:
+            print("No texts found in the response. Retrying...")
+            continue
     # print(data)
     # print(data["texts"])
 
@@ -242,11 +255,41 @@ def extract_text_from_section(pdf_file, section, str_rows, part=None):
 
 
 for year in years:
+    name_column = year["name_column"]
     excel_sheet = year["excel_sheet"]
     pdf_file = year["pdf_file"]
 
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
-    str_rows = get_deduplicated_rows(df)
+    df.columns = df.iloc[0]
+    df = df[1:]
+
+    df = df[df["FEJEZET"].notna()]
+
+    df["fid"] = (
+        df["FEJEZET"].astype(int).astype(str)
+        + "."
+        + df["CIM"].astype(int).astype(str)
+        + "."
+        + df["ALCIM"].astype(int).astype(str)
+        + "."
+        + df["JOGCIM1"].astype(int).astype(str)
+        + "."
+        + df["JOGCIM2"].astype(int).astype(str)
+    )
+
+    df["fid"] = (
+        df["fid"]
+        .str.replace(r"\.0$", "", regex=True)
+        .replace(r"\.0$", "", regex=True)
+        .replace(r"\.0$", "", regex=True)
+        .replace(r"\.0$", "", regex=True)
+        .replace(r"\.0$", "", regex=True)
+    )
+
+    deduplicated_rows = get_deduplicated_rows(df)
+    df = df[df["fid"].isin(deduplicated_rows)]
+    names = df[name_column]
+
     # for r in str_rows:
     #     print(r)
 
@@ -262,7 +305,9 @@ for year in years:
         section_number = from_roman_numeral(title.split(" ")[0].strip("."))
         pdf_file = section["file_path"]
         try:
-            extract_text_from_section(pdf_file, section_number, str_rows)
+            extract_text_from_section(
+                pdf_file, section_number, deduplicated_rows, names
+            )
         except Exception as e:
             print(f"Error processing section {section_number}: {e}")
             continue
