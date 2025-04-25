@@ -12,6 +12,7 @@ from google.genai import types
 from dotenv import load_dotenv
 import json
 from tqdm import tqdm
+import traceback
 
 load_dotenv(dotenv_path=".env")
 
@@ -27,7 +28,7 @@ years = [
 ]
 
 
-def generate(prompt, file_path):
+def generate(prompt, file_path, temp):
     client = genai.Client(
         api_key=os.environ.get("GEMINI_API_KEY"),
     )
@@ -49,7 +50,7 @@ def generate(prompt, file_path):
         ),
     ]
     generate_content_config = types.GenerateContentConfig(
-        temperature=0,
+        temperature=temp,
         response_mime_type="application/json",
         response_schema=genai.types.Schema(
             type=genai.types.Type.OBJECT,
@@ -233,6 +234,34 @@ Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a követ
 """
 
 
+def get_prompt_textgen(section, filtered_rows, names):
+    return f"""
+Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
+
+Általában minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
+
+A fejezet a legmagasabb hierarchikus szint (gyakran római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
+
+Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím"). De az is előfordul, hogy az azonosító számok nem szerepelnek, csak a nevek. Ezeket a neveket is figyelembe kell venni.
+
+Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az egyéb magyarázó szövegeket, amik nem címhez tartoznak ne vedd bele.
+
+Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
+
+Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
+
+Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
+Pl.: VI.1.2.3
+
+Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
+
+Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel. Ha nem találnál konkrétan jelzett erre utaló részt a szövegben, akkor is írj indoklást az adott nevekhez a szöveg alapján.
+
+Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
+{"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
+"""
+
+
 def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
     roman_section = to_roman_numeral(section)
     filtered_rows = [
@@ -246,23 +275,24 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
     # print(prompt)
     # print("---")
 
-    for i in range(2):
-        if i == 0:
+    for i in range(4):
+        if i < 2:
             prompt = get_prompt(roman_section, filtered_rows, names)
-        elif i == 1:
+        elif i == 2:
             prompt = get_prompt_v1(roman_section, filtered_rows)
+        elif i == 3:
+            prompt = get_prompt_textgen(roman_section, filtered_rows, names)
+        if roman_section == "XI":
+            prompt = get_prompt_v1(roman_section, filtered_rows)
+        temp = 0
+        if i == 1:
+            temp = 0.5
 
-        generated = generate(prompt, pdf_file)
+        generated = generate(prompt, pdf_file, temp)
         data = generated.parsed
 
         if data and "texts" in data and len(data["texts"]) > 0:
-            count_characters = sum([len(t["indoklás szöveg"].strip()) for t in data["texts"]])
-            if count_characters > 10:
-                break
-            else:
-                print(roman_section)
-                print("Too short response. Retrying...")
-                continue
+            break
         else:
             print(roman_section)
             print("No texts found in the response. Retrying...")
@@ -338,7 +368,7 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    filtered_sections = section_structures[7:]
+    filtered_sections = section_structures[14:]
     # filtered_sections = [s for s in section_structures if s[0] == "IX. Helyi Önkormányzatok Támogatásai"]
 
     for title, section in tqdm(filtered_sections):
@@ -350,4 +380,6 @@ for year in years:
             )
         except Exception as e:
             print(f"Error processing section {section_number}: {e}")
+            stack_trace = traceback.format_exc()
+            print(stack_trace)
             continue
