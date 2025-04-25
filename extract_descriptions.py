@@ -177,6 +177,34 @@ def get_deduplicated_rows(df):
     return str_rows
 
 
+def get_prompt_v1(section, filtered_rows):
+    return f"""
+Hierarchikusan strukturált költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned.
+
+Most minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
+
+A fejezet a legmagasabb hierarchikus szint (római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
+
+Formátum:
+Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím").
+
+Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az egyéb magyarázó szövegeket, amik nem címhez tartoznak ne vedd bele.
+
+Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
+
+Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
+
+Az id formátuma: fejezet.cím(.alcím.jocímek)
+Pl.: VI.1.2.3
+
+Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
+
+Lehet, hogy a dokumentum nem tartalmazza a kért részeket. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
+
+Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket: {", ".join(filtered_rows)}
+"""
+
+
 def get_prompt(section, filtered_rows, names):
     return f"""
 Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
@@ -213,18 +241,30 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
         if row.startswith(f"{section}.")
     ]
 
-    prompt = get_prompt(roman_section, filtered_rows, names)
     # print("prompt")
     # print("---")
     # print(prompt)
     # print("---")
 
-    while True:
+    for i in range(2):
+        if i == 0:
+            prompt = get_prompt(roman_section, filtered_rows, names)
+        elif i == 1:
+            prompt = get_prompt_v1(roman_section, filtered_rows)
+
         generated = generate(prompt, pdf_file)
         data = generated.parsed
+
         if data and "texts" in data and len(data["texts"]) > 0:
-            break
+            count_characters = sum([len(t["indoklás szöveg"].strip()) for t in data["texts"]])
+            if count_characters > 10:
+                break
+            else:
+                print(roman_section)
+                print("Too short response. Retrying...")
+                continue
         else:
+            print(roman_section)
             print("No texts found in the response. Retrying...")
             continue
     # print(data)
@@ -298,7 +338,7 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    filtered_sections = section_structures[0:]
+    filtered_sections = section_structures[7:]
     # filtered_sections = [s for s in section_structures if s[0] == "IX. Helyi Önkormányzatok Támogatásai"]
 
     for title, section in tqdm(filtered_sections):
