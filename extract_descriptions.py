@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import json
 from tqdm import tqdm
 import traceback
+from utils.pdf_extractor import get_page_lenth
 
 load_dotenv(dotenv_path=".env")
 
@@ -55,7 +56,7 @@ def generate(prompt, file_path, temp):
     ]
     generate_content_config = types.GenerateContentConfig(
         temperature=temp,
-        thinking_config = types.ThinkingConfig(
+        thinking_config=types.ThinkingConfig(
             thinking_budget=1024,
         ),
         response_mime_type="application/json",
@@ -185,7 +186,7 @@ def get_deduplicated_rows(df):
     return str_rows
 
 
-def get_prompt_v1(section, filtered_rows):
+def get_prompt_v1(section, filtered_rows, is_part):
     return f"""
 Hierarchikusan strukturált költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned.
 
@@ -207,13 +208,13 @@ Pl.: VI.1.2.3
 
 Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
 
-Lehet, hogy a dokumentum nem tartalmazza a kért részeket. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
+Lehet, hogy a dokumentum nem tartalmazza a kért részeket{', hanem csak az elejét' if is_part else ''}. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
 
 Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket: {", ".join(filtered_rows)}
 """
 
 
-def get_prompt(section, filtered_rows, names):
+def get_prompt(section, filtered_rows, names, is_part):
     return f"""
 Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
 
@@ -227,7 +228,7 @@ Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az 
 
 Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
 
-Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
+{'Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét.' if is_part else 'Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez.'} Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
 
 Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
 Pl.: VI.1.2.3
@@ -241,7 +242,7 @@ Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a követ
 """
 
 
-def get_prompt_textgen(section, filtered_rows, names):
+def get_prompt_textgen(section, filtered_rows, names, is_part):
     return f"""
 Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
 
@@ -255,7 +256,7 @@ Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az 
 
 Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
 
-Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
+{'Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét.' if is_part else 'Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez.'} Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
 
 Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
 Pl.: VI.1.2.3
@@ -269,23 +270,30 @@ Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a követ
 """
 
 
-def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
+def extract_text_from_section(
+    pdf_file, section, str_rows, names, start_from=0, part=None
+):
+    is_part = part is not None
     roman_section = to_roman_numeral(section)
     filtered_rows = [
         f"{roman_section}.{'.'.join(row.split('.')[1:])}"
         for row in str_rows
         if row.startswith(f"{section}.")
     ]
+    filtered_rows = filtered_rows[start_from:]
+    print(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
+    names = names[start_from:]
 
+    success = []
     for i in range(4):
         if i < 2:
-            prompt = get_prompt(roman_section, filtered_rows, names)
+            prompt = get_prompt(roman_section, filtered_rows, names, is_part)
         elif i == 2:
-            prompt = get_prompt_v1(roman_section, filtered_rows)
+            prompt = get_prompt_v1(roman_section, filtered_rows, is_part)
         elif i == 3:
-            prompt = get_prompt_textgen(roman_section, filtered_rows, names)
+            prompt = get_prompt_textgen(roman_section, filtered_rows, names, is_part)
         if roman_section == "XI":
-            prompt = get_prompt_v1(roman_section, filtered_rows)
+            prompt = get_prompt_v1(roman_section, filtered_rows, is_part)
         temp = 0
         if i == 1:
             temp = 0.5
@@ -299,9 +307,11 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
 
         if data and "texts" in data and len(data["texts"]) > 0:
             try:
-                success = [1 if len(t['text'].strip()) > 80 else 0 for t in data["texts"]]
+                success = [
+                    1 if len(t["text"].strip()) > 80 else 0 for t in data["texts"]
+                ]
                 print(f"Generated success: {success}")
-                if sum(success)/len(success) > 0.8:
+                if sum(success) / len(success) > 0.8 or is_part:
                     break
             except Exception as e:
                 print(f"Error processing section {section}: {e}")
@@ -310,6 +320,14 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
             print(roman_section)
             print("No texts found in the response. Retrying...")
             continue
+
+    if success:
+        last_success = -1
+        for i, s in enumerate(success):
+            if s == 1:
+                last_success = i
+    print(f"Last success: {last_success}")
+
     # print(data)
     # print(data["texts"])
 
@@ -335,6 +353,44 @@ def extract_text_from_section(pdf_file, section, str_rows, names, part=None):
     descriptions_df.to_csv(csv_filename, index=False, encoding="utf-8")
 
     print(f"Saved extracted descriptions to {csv_filename}")
+
+    return last_success
+
+
+def split_pdf_by_pages(pdf_path, output_dir, name_prefix, splits):
+    """Split the PDF file into sections based on page ranges."""
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(pdf_path, "rb") as file:
+        pdf = PyPDF2.PdfReader(file)
+        total_pages = len(pdf.pages)
+
+        # Calculate base pages per split
+        pages_per_split = total_pages // splits
+
+        # Create list to store created file paths
+        split_files = []
+
+        for i in range(splits):
+            output_pdf = PyPDF2.PdfWriter()
+
+            # Calculate start and end page for this split
+            start_page = i * pages_per_split
+            end_page = (i + 1) * pages_per_split if i < splits - 1 else total_pages
+
+            # Add pages to the new PDF
+            for page_num in range(start_page, end_page):
+                output_pdf.add_page(pdf.pages[page_num])
+
+            # Save the split PDF
+            output_file = os.path.join(output_dir, f"{name_prefix}_{i+1}.pdf")
+            with open(output_file, "wb") as out_file:
+                output_pdf.write(out_file)
+
+            split_files.append(output_file)
+            print(f"Created split PDF: {output_file} (pages {start_page+1}-{end_page})")
+
+        return split_files
 
 
 for year in years:
@@ -381,16 +437,39 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    filtered_sections = section_structures[0:]
-    # filtered_sections = [s for s in section_structures if s[0] == "IX. Helyi Önkormányzatok Támogatásai"]
+    # filtered_sections = section_structures[0:]
+    filtered_sections = [s for s in section_structures if s[0].startswith("XX.")]
 
     for title, section in tqdm(filtered_sections):
         section_number = from_roman_numeral(title.split(" ")[0].strip("."))
         pdf_file = section["file_path"]
         try:
-            extract_text_from_section(
-                pdf_file, section_number, deduplicated_rows, names
-            )
+            page_count = get_page_lenth(pdf_file)
+            if page_count > 100:
+                # Split the PDF into 100 page chunks to page count
+                splits = page_count // 100 + 1
+                split_files = split_pdf_by_pages(
+                    pdf_file,
+                    "split",
+                    f"{excel_sheet}_{section_number}",
+                    splits,
+                )
+                print(f"Split PDF into {len(split_files)} parts.")
+                last_success = 0
+                for i, split_file in enumerate(split_files):
+                    print(f"Processing split file: {split_file}")
+                    last_success += extract_text_from_section(
+                        split_file,
+                        section_number,
+                        deduplicated_rows,
+                        names,
+                        start_from=last_success,
+                        part=i,
+                    )
+            else:
+                extract_text_from_section(
+                    pdf_file, section_number, deduplicated_rows, names
+                )
         except Exception as e:
             print(f"Error processing section {section_number}: {e}")
             stack_trace = traceback.format_exc()
