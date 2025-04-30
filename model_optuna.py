@@ -45,6 +45,7 @@ def weighted_function_classifier(
     name = row["name"]
     ahtt = row["ÁHT-T"]
     fid = row["fid"]
+    indoklas = row["indoklas"]
 
     # Define weights for different match types
     if weights is None:
@@ -147,27 +148,43 @@ def weighted_function_classifier(
         function_scores[function] += weights["fid_fuzzy"] * similarity
         match_types[function].append(f"fid_fuzzy_{similarity:.2f}")
 
-    # 6. Fuzzy indoklas matching
-    fid_similarities = []
-    for i, old_row in df_old.iterrows():
-        old_fid = old_row["indoklas"]
-        similarity = textdistance.jaro_winkler(fid, old_fid)
-        if similarity > indoklas_threshold:  # Only consider significant matches
-            fid_similarities.append((i, similarity))
+    # 6. TF-IDF vectorization and cosine similarity for indoklas matching
+    if indoklas and not df_old["indoklas"].isna().all():
+        # Prepare corpus for TF-IDF
+        corpus = list(df_old["indoklas"].dropna())
+        if indoklas:  # Add current indoklas to corpus
+            corpus.append(indoklas)
 
-    # Sort by similarity score and take top 5
-    fid_similarities.sort(key=lambda x: x[1], reverse=True)
-    for i, similarity in fid_similarities[:5]:
-        match = df_old.iloc[i]
-        if function_column is not None:
-            function = function_column.iloc[i]
-        else:
-            function = match["function"]
-        if function not in function_scores:
-            function_scores[function] = 0
-            match_types[function] = []
-        function_scores[function] += weights["indoklas_fuzzy"] * similarity
-        match_types[function].append(f"indoklas_fuzzy{similarity:.2f}")
+        # Create TF-IDF vectors
+        vectorizer = TfidfVectorizer(stop_words=None, min_df=1)
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+
+        # Get vector for current indoklas (last item in corpus)
+        indoklas_vector = tfidf_matrix[-1]
+
+        # Compute cosine similarities with all documents in old dataset
+        corpus_vectors = tfidf_matrix[:-1]  # All except the current indoklas
+        cosine_similarities = cosine_similarity(indoklas_vector, corpus_vectors)[0]
+
+        # Find significant matches
+        indoklas_similarities = []
+        for i, sim in enumerate(cosine_similarities):
+            if sim > indoklas_threshold:  # Only consider significant matches
+                indoklas_similarities.append((df_old.index[i], sim))
+
+        # Sort by similarity score and take top 5
+        indoklas_similarities.sort(key=lambda x: x[1], reverse=True)
+        for i, similarity in indoklas_similarities[:5]:
+            match = df_old.loc[i]
+            if function_column is not None:
+                function = function_column.loc[i]
+            else:
+                function = match["function"]
+            if function not in function_scores:
+                function_scores[function] = 0
+                match_types[function] = []
+            function_scores[function] += weights["indoklas_fuzzy"] * similarity
+            match_types[function].append(f"indoklas_tfidf_{similarity:.2f}")
 
     # Find the function with the highest score
     if function_scores:
@@ -179,42 +196,42 @@ def weighted_function_classifier(
     return None, None
 
 
-y = df_new["function"]
-X = df_new.drop(columns=["function"])
+# y = df_new["function"]
+# X = df_new.drop(columns=["function"])
 
-# Apply the weighted function classifier
-y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_old)
+# # Apply the weighted function classifier
+# y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_old)
 
-# Extract only the function predictions (second element of each tuple)
-y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
+# # Extract only the function predictions (second element of each tuple)
+# y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
 
-# Calculate accuracy and coverage
-accuracy = get_accuracy(y, y_pred_functions)
-coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
+# # Calculate accuracy and coverage
+# accuracy = get_accuracy(y, y_pred_functions)
+# coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
 
-print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
-
-
-y = df_old["function"]
-X = df_old.drop(columns=["function"])
+# print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
 
 
-# Apply the weighted function classifier
-y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_oldest)
-
-# Extract only the function predictions (second element of each tuple)
-y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
-
-# Calculate accuracy and coverage
-accuracy = get_accuracy(y, y_pred_functions)
-coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
-
-print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
+# y = df_old["function"]
+# X = df_old.drop(columns=["function"])
 
 
-# Analyze the prediction method used for each item
-match_types = y_pred.apply(lambda x: x[0] if x is not None else None)
-match_types.value_counts().head(10)
+# # Apply the weighted function classifier
+# y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_oldest)
+
+# # Extract only the function predictions (second element of each tuple)
+# y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
+
+# # Calculate accuracy and coverage
+# accuracy = get_accuracy(y, y_pred_functions)
+# coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
+
+# print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
+
+
+# # Analyze the prediction method used for each item
+# match_types = y_pred.apply(lambda x: x[0] if x is not None else None)
+# match_types.value_counts().head(10)
 
 import optuna
 from optuna.visualization import plot_optimization_history, plot_param_importances
@@ -252,6 +269,7 @@ def objective(trial):
     # Suggest threshold values
     name_threshold = trial.suggest_float("name_threshold", 0.5, 0.95)
     fid_threshold = trial.suggest_float("fid_threshold", 0.5, 0.95)
+    indoklas_threshold = trial.suggest_float("indoklas_threshold", 0.1, 0.95)
 
     # Apply weighted classifier with suggested weights
     y_pred = X_val.apply(
@@ -261,6 +279,7 @@ def objective(trial):
             weights=weights,
             name_threshold=name_threshold,
             fid_threshold=fid_threshold,
+            indoklas_threshold=indoklas_threshold,
             function_column=y_train,
         )[
             1
@@ -276,7 +295,7 @@ def objective(trial):
 
 # Create and run the optimization study
 study = optuna.create_study(direction="maximize", study_name="weight_optimization")
-study.optimize(objective, n_trials=50)  # Adjust n_trials as needed
+study.optimize(objective, n_trials=100)  # Adjust n_trials as needed
 
 # Print optimization results
 print("Number of finished trials:", len(study.trials))
@@ -314,12 +333,14 @@ best_weights = {
 }
 best_name_threshold = best_params["name_threshold"]
 best_fid_threshold = best_params["fid_threshold"]
+best_indoklas_threshold = best_params["indoklas_threshold"]
 
 print("Best weights:")
 for key, value in best_weights.items():
     print(f"  {key}: {value:.4f}")
 print(f"Best name threshold: {best_name_threshold:.4f}")
 print(f"Best FID threshold: {best_fid_threshold:.4f}")
+print(f"Best FID threshold: {best_indoklas_threshold:.4f}")
 
 # Test with default weights on df_new
 default_y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_old)
@@ -394,3 +415,6 @@ if len(improved) > 0:
             f"  True: {row['true_function']}, Default predicted: {row['default_prediction']}, Optimized predicted: {row['optimized_prediction']}"
         )
         print()
+
+
+# [I 2025-04-30 14:03:35,273] Trial 44 finished with value: 0.9266480965645311 and parameters: {'ahtt_exact': 18.24249077777863, 'name_exact': 9.646733805783061, 'fid_exact': 8.156735046769706, 'name_fuzzy': 2.9577721252455733, 'fid_fuzzy': 2.1705892451434217, 'indoklas_fuzzy': 6.487926301039365, 'name_threshold': 0.8407713991836503, 'fid_threshold': 0.5694381067962929, 'indoklas_threshold': 0.7633828580168956}. Best is trial 44 with value: 0.9266480965645311.
