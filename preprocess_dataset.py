@@ -103,6 +103,17 @@ years = [
             "accumulated_income": "Felhalmozási bevétel",
         },
     },
+    {
+        "excel_sheet": "2018",
+        "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
 ]
 
 for year in years:
@@ -180,31 +191,32 @@ for year in years:
     )
     section_names.index = section_names.index.astype(int).astype(str)
 
-
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
 
-
     # sum the values in the columns 'spending', 'income', 'support', 'accumulated_spending', 'accumulated_income'
     # for other columns take the first value
-    df = df.groupby("fid").agg(
-        {
-            "spending": "sum",
-            "income": "sum",
-            "support": "sum",
-            "accumulated_spending": "sum",
-            "accumulated_income": "sum",
-            "function": "first",
-
-            "ÁHT-T": "first",
-            "FEJEZET": "first",
-            "CIM": "first",
-            "ALCIM": "first",
-            "JOGCIM1": "first",
-            "JOGCIM2": "first",
-            name_column: "first",
-        }
-    ).reset_index()
+    df = (
+        df.groupby("fid")
+        .agg(
+            {
+                "spending": "sum",
+                "income": "sum",
+                "support": "sum",
+                "accumulated_spending": "sum",
+                "accumulated_income": "sum",
+                "function": "first",
+                "ÁHT-T": "first",
+                "FEJEZET": "first",
+                "CIM": "first",
+                "ALCIM": "first",
+                "JOGCIM1": "first",
+                "JOGCIM2": "first",
+                name_column: "first",
+            }
+        )
+        .reset_index()
+    )
 
     # sort fid column to handle 11.10.1.2 and 11.10.1 like values
 
@@ -214,7 +226,6 @@ for year in years:
             lambda y: [int(i) for i in y] if isinstance(y, list) else y
         ),
     ).reset_index(drop=True)
-    
 
     # ahtts = get_functions(df, column="ÁHT-T")
     # print(f"Functions: {len(ahtts)}")
