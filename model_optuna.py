@@ -3,6 +3,33 @@ import numpy as np
 import textdistance
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.pipeline import Pipeline
+from nltk.corpus import stopwords
+from nltk.stem import SnowballStemmer
+
+
+# Add text preprocessing to improve indoklas matching
+def preprocess_text(text):
+    # Handle Hungarian language
+    try:
+        hungarian_stopwords = stopwords.words("hungarian")
+    except:
+        # Download stopwords if not available
+        import nltk
+
+        nltk.download("stopwords")
+        hungarian_stopwords = stopwords.words("hungarian")
+
+    # Create stemmer
+    stemmer = SnowballStemmer("hungarian")
+
+    # Lowercase, stem and remove stopwords
+    if isinstance(text, str):
+        words = text.lower().split()
+        return " ".join(
+            [stemmer.stem(word) for word in words if word not in hungarian_stopwords]
+        )
+    return ""
 
 
 df_oldest = pd.read_json("dataset_2016.json", lines=True)
@@ -151,9 +178,10 @@ def weighted_function_classifier(
     # 6. TF-IDF vectorization and cosine similarity for indoklas matching
     if indoklas and not df_old["indoklas"].isna().all():
         # Prepare corpus for TF-IDF
-        corpus = list(df_old["indoklas"].dropna())
-        if indoklas:  # Add current indoklas to corpus
-            corpus.append(indoklas)
+        corpus = list(df_old["indoklas"].fillna("").apply(preprocess_text))
+        if indoklas:
+            processed_indoklas = preprocess_text(indoklas)
+            corpus.append(processed_indoklas)
 
         # Create TF-IDF vectors
         vectorizer = TfidfVectorizer(stop_words=None, min_df=1)
