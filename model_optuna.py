@@ -3,9 +3,12 @@ import numpy as np
 import textdistance
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.pipeline import Pipeline
 from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
+import optuna
+from optuna.visualization import plot_optimization_history, plot_param_importances
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, f1_score
 
 
 # Add text preprocessing to improve indoklas matching
@@ -50,14 +53,20 @@ def get_accuracy(y_true, y_pred):
     return np.sum(y_true == y_pred) / len(y_true)
 
 
+def precompute_tfidf(documents):
+    vectorizer = TfidfVectorizer(stop_words=None, min_df=1)
+    tfidf_matrix = vectorizer.fit_transform(documents)
+    return vectorizer, tfidf_matrix
+
+
 def weighted_function_classifier(
     row,
     df_old,
     weights=None,
     name_threshold=0.85,
-    fid_threshold=0.85,
     indoklas_threshold=0.85,
     function_column=None,
+    tfidf_data=None,  # Add parameter for precomputed TF-IDF data
 ):
     """
     Assign a function to a budget item using a weighted voting classifier.
@@ -156,9 +165,9 @@ def weighted_function_classifier(
     # 5. Fuzzy FID matching
     fid_similarities = []
     for i, old_row in df_old.iterrows():
-        old_fid = old_row["fid"]
-        similarity = textdistance.jaro_winkler(fid, old_fid)
-        if similarity > fid_threshold:  # Only consider significant matches
+        search_fid = ".".join(fid.split(".")[:-1])
+        if old_row["fid"].startswith(search_fid):
+            similarity = fid.count(".") / old_row["fid"].count(".")
             fid_similarities.append((i, similarity))
 
     # Sort by similarity score and take top 5
@@ -177,42 +186,75 @@ def weighted_function_classifier(
 
     # 6. TF-IDF vectorization and cosine similarity for indoklas matching
     if indoklas and not df_old["indoklas"].isna().all():
-        # Prepare corpus for TF-IDF
-        corpus = list(df_old["indoklas"].fillna("").apply(preprocess_text))
-        if indoklas:
+        if tfidf_data is not None:
+            # Use precomputed TF-IDF data
+            vectorizer, old_tfidf_matrix = tfidf_data
+
+            # Process and transform the current indoklas
             processed_indoklas = preprocess_text(indoklas)
-            corpus.append(processed_indoklas)
+            indoklas_vector = vectorizer.transform([processed_indoklas])
 
-        # Create TF-IDF vectors
-        vectorizer = TfidfVectorizer(stop_words=None, min_df=1)
-        tfidf_matrix = vectorizer.fit_transform(corpus)
+            # Compute cosine similarities with all documents in old dataset
+            cosine_similarities = cosine_similarity(indoklas_vector, old_tfidf_matrix)[
+                0
+            ]
 
-        # Get vector for current indoklas (last item in corpus)
-        indoklas_vector = tfidf_matrix[-1]
+            # Find significant matches
+            indoklas_similarities = []
+            for i, sim in enumerate(cosine_similarities):
+                if sim > indoklas_threshold:  # Only consider significant matches
+                    indoklas_similarities.append((df_old.index[i], sim))
 
-        # Compute cosine similarities with all documents in old dataset
-        corpus_vectors = tfidf_matrix[:-1]  # All except the current indoklas
-        cosine_similarities = cosine_similarity(indoklas_vector, corpus_vectors)[0]
+            # Sort by similarity score and take top 5
+            indoklas_similarities.sort(key=lambda x: x[1], reverse=True)
+            for i, similarity in indoklas_similarities[:5]:
+                match = df_old.loc[i]
+                if function_column is not None:
+                    function = function_column.loc[i]
+                else:
+                    function = match["function"]
+                if function not in function_scores:
+                    function_scores[function] = 0
+                    match_types[function] = []
+                function_scores[function] += weights["indoklas_fuzzy"] * similarity
+                match_types[function].append(f"indoklas_tfidf_{similarity:.2f}")
+        else:
+            # Prepare corpus for TF-IDF
+            corpus = list(df_old["indoklas"].fillna("").apply(preprocess_text))
+            if indoklas:
+                processed_indoklas = preprocess_text(indoklas)
+                corpus.append(processed_indoklas)
 
-        # Find significant matches
-        indoklas_similarities = []
-        for i, sim in enumerate(cosine_similarities):
-            if sim > indoklas_threshold:  # Only consider significant matches
-                indoklas_similarities.append((df_old.index[i], sim))
+            # Create TF-IDF vectors
+            vectorizer = TfidfVectorizer(stop_words=None, min_df=1)
+            tfidf_matrix = vectorizer.fit_transform(corpus)
 
-        # Sort by similarity score and take top 5
-        indoklas_similarities.sort(key=lambda x: x[1], reverse=True)
-        for i, similarity in indoklas_similarities[:5]:
-            match = df_old.loc[i]
-            if function_column is not None:
-                function = function_column.loc[i]
-            else:
-                function = match["function"]
-            if function not in function_scores:
-                function_scores[function] = 0
-                match_types[function] = []
-            function_scores[function] += weights["indoklas_fuzzy"] * similarity
-            match_types[function].append(f"indoklas_tfidf_{similarity:.2f}")
+            # Get vector for current indoklas (last item in corpus)
+            indoklas_vector = tfidf_matrix[-1]
+
+            # Compute cosine similarities with all documents in old dataset
+            corpus_vectors = tfidf_matrix[:-1]  # All except the current indoklas
+            cosine_similarities = cosine_similarity(indoklas_vector, corpus_vectors)[0]
+
+            # Find significant matches
+            indoklas_similarities = []
+            for i, sim in enumerate(cosine_similarities):
+                if sim > indoklas_threshold:  # Only consider significant matches
+                    indoklas_similarities.append((df_old.index[i], sim))
+
+            # Sort by similarity score and take top 5
+            indoklas_similarities.sort(key=lambda x: x[1], reverse=True)
+            for i, similarity in indoklas_similarities[:5]:
+                match = df_old.loc[i]
+                if function_column is not None:
+                    function = function_column.loc[i]
+                else:
+                    function = match["function"]
+                if function not in function_scores:
+                    function_scores[function] = 0
+                    match_types[function] = []
+                function_scores[function] += weights["indoklas_fuzzy"] * similarity
+                match_types[function].append(f"indoklas_tfidf_{similarity:.2f}")
 
     # Find the function with the highest score
     if function_scores:
@@ -224,54 +266,19 @@ def weighted_function_classifier(
     return None, None
 
 
-# y = df_new["function"]
-# X = df_new.drop(columns=["function"])
-
-# # Apply the weighted function classifier
-# y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_old)
-
-# # Extract only the function predictions (second element of each tuple)
-# y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
-
-# # Calculate accuracy and coverage
-# accuracy = get_accuracy(y, y_pred_functions)
-# coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
-
-# print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
-
-
-# y = df_old["function"]
-# X = df_old.drop(columns=["function"])
-
-
-# # Apply the weighted function classifier
-# y_pred = X.apply(weighted_function_classifier, axis=1, df_old=df_oldest)
-
-# # Extract only the function predictions (second element of each tuple)
-# y_pred_functions = y_pred.apply(lambda x: x[1] if x is not None else None)
-
-# # Calculate accuracy and coverage
-# accuracy = get_accuracy(y, y_pred_functions)
-# coverage = y_pred_functions.notnull().sum() / len(y_pred_functions)
-
-# print(f"Accuracy: {accuracy:.4f}, Coverage: {coverage:.4f}")
-
-
-# # Analyze the prediction method used for each item
-# match_types = y_pred.apply(lambda x: x[0] if x is not None else None)
-# match_types.value_counts().head(10)
-
-import optuna
-from optuna.visualization import plot_optimization_history, plot_param_importances
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-
 # Prepare datasets for optimization
 X_train = df_oldest.drop(columns=["function"])  # Training features
 y_train = df_oldest["function"]  # Training targets
 
 X_val = df_old.drop(columns=["function"])  # Validation features
 y_val = df_old["function"]  # Validation targets
+
+X = df_new.drop(columns=["function"])  # New dataset features
+y = df_new["function"]  # New dataset targets
+
+# Precompute TF-IDF for the training data
+processed_indoklas_train = X_train["indoklas"].fillna("").apply(preprocess_text)
+tfidf_data_train = precompute_tfidf(processed_indoklas_train)
 
 
 def objective(trial):
@@ -296,7 +303,6 @@ def objective(trial):
 
     # Suggest threshold values
     name_threshold = trial.suggest_float("name_threshold", 0.5, 0.95)
-    fid_threshold = trial.suggest_float("fid_threshold", 0.5, 0.95)
     indoklas_threshold = trial.suggest_float("indoklas_threshold", 0.1, 0.95)
 
     # Apply weighted classifier with suggested weights
@@ -306,9 +312,9 @@ def objective(trial):
             X_train,
             weights=weights,
             name_threshold=name_threshold,
-            fid_threshold=fid_threshold,
             indoklas_threshold=indoklas_threshold,
             function_column=y_train,
+            tfidf_data=tfidf_data_train,  # Pass precomputed TF-IDF data
         )[
             1
         ],  # Extract only the function prediction
@@ -335,18 +341,6 @@ print("  Params:")
 for key, value in trial.params.items():
     print("    {}: {}".format(key, value))
 
-# Visualize the optimization results
-plt.figure(figsize=(12, 5))
-
-plt.subplot(1, 2, 1)
-plot_optimization_history(study)
-
-plt.subplot(1, 2, 2)
-plot_param_importances(study)
-
-plt.tight_layout()
-plt.show()
-
 # Extract the best parameters
 best_params = study.best_params
 
@@ -360,14 +354,12 @@ best_weights = {
     "indoklas_fuzzy": best_params["indoklas_fuzzy"],
 }
 best_name_threshold = best_params["name_threshold"]
-best_fid_threshold = best_params["fid_threshold"]
 best_indoklas_threshold = best_params["indoklas_threshold"]
 
 print("Best weights:")
 for key, value in best_weights.items():
     print(f"  {key}: {value:.4f}")
 print(f"Best name threshold: {best_name_threshold:.4f}")
-print(f"Best FID threshold: {best_fid_threshold:.4f}")
 print(f"Best FID threshold: {best_indoklas_threshold:.4f}")
 
 # Test with default weights on df_new
@@ -384,6 +376,10 @@ print(
     f"Default parameters - Accuracy: {default_accuracy:.4f}, Coverage: {default_coverage:.4f}"
 )
 
+
+processed_indoklas_old = df_old["indoklas"].fillna("").apply(preprocess_text)
+tfidf_data_old = precompute_tfidf(processed_indoklas_old)
+
 # Test with optimized parameters on df_new
 optimized_y_pred = X.apply(
     lambda row: weighted_function_classifier(
@@ -391,7 +387,8 @@ optimized_y_pred = X.apply(
         df_old,
         weights=best_weights,
         name_threshold=best_name_threshold,
-        fid_threshold=best_fid_threshold,
+        indoklas_threshold=best_indoklas_threshold,  # Add this parameter
+        tfidf_data=tfidf_data_old,  # Pass precomputed TF-IDF data
     )[1],
     axis=1,
 )
@@ -403,6 +400,19 @@ print(
     f"Optimized parameters - Accuracy: {optimized_accuracy:.4f}, Coverage: {optimized_coverage:.4f}"
 )
 print(f"Improvement: {(optimized_accuracy - default_accuracy) * 100:.2f}%")
+
+# After computing predictions
+print("Classification report for default model:")
+print(classification_report(y, default_y_pred_functions, zero_division=0))
+
+print("\nClassification report for optimized model:")
+print(classification_report(y, optimized_y_pred, zero_division=0))
+
+# F1 scores
+default_f1 = f1_score(y, default_y_pred_functions, average="weighted", zero_division=0)
+optimized_f1 = f1_score(y, optimized_y_pred, average="weighted", zero_division=0)
+print(f"Default F1-score: {default_f1:.4f}")
+print(f"Optimized F1-score: {optimized_f1:.4f}")
 
 # Create a DataFrame to compare predictions
 comparison_df = pd.DataFrame(
