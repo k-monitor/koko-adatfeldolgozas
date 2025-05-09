@@ -1,3 +1,9 @@
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=".env")
+from google import genai
+from google.genai import types
+import os
 import pandas as pd
 import numpy as np
 import textdistance
@@ -11,6 +17,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
+from time import sleep
 
 
 df_oldest = pd.read_json("dataset_2016.json", lines=True)
