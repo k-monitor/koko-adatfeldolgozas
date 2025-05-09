@@ -52,6 +52,52 @@ df_new["sum"] = (
     + df_new["accumulated_income"]
 )
 
+possible_functions = [
+    "F01.a",
+    "F01.b",
+    "F01.c",
+    "F01.d",
+    "F01.e",
+    "F01.f",
+    "F02",
+    "F03.a",
+    "F03.b",
+    "F03.c",
+    "F03.d",
+    "F04.a",
+    "F04.b",
+    "F04.c",
+    "F04.d",
+    "F05.a",
+    "F05.d",
+    "F05.e",
+    "F06.b",
+    "F06.c",
+    "F06.d",
+    "F06.e",
+    "F06.f",
+    "F06.g",
+    "F07",
+    "F08.a",
+    "F08.b",
+    "F08.c",
+    "F08.d",
+    "F08.e",
+    "F08.f",
+    "F09",
+    "F10",
+    "F11",
+    "F12.a",
+    "F12.b",
+    "F12.c",
+    "F12.d",
+    "F13.a",
+    "F13.b",
+    "F14",
+    "F15",
+    "F16",
+]
+
 
 # Add text preprocessing to improve indoklas matching
 def preprocess_text(text):
