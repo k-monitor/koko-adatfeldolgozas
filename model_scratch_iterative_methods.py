@@ -18,39 +18,49 @@ from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
 from time import sleep
+import json
+
+with open("n2f.json", "r") as f:
+    n2f = json.load(f)
+
+df_2016 = pd.read_json("dataset_2016.json", lines=True)
+df_2017 = pd.read_json("dataset_2017.json", lines=True)
+df_2018 = pd.read_json("dataset_2018.json", lines=True)
+df_2019 = pd.read_json("dataset_2019.json", lines=True)
+df_2020 = pd.read_json("dataset_2020.json", lines=True)
+df_2021 = pd.read_json("dataset_2021.json", lines=True)
 
 
-df_oldest = pd.read_json("dataset_2016.json", lines=True)
-df_old = pd.read_json("dataset_2017.json", lines=True)
-df_new = pd.read_json("dataset_2018.json", lines=True)
-df_new["indoklas"].fillna("", inplace=True)
-df_oldest["indoklas"].fillna("", inplace=True)
-df_old["indoklas"].fillna("", inplace=True)
-df_new.fillna(0, inplace=True)
-df_oldest.fillna(0, inplace=True)
-df_old.fillna(0, inplace=True)
+def preprocess_df(df):
+    df["indoklas"].fillna("", inplace=True)
+    df.fillna(0, inplace=True)
+    df["sum"] = (
+        df["spending"]
+        # + df["income"]
+        # + df["support"]
+        + df["accumulated_spending"]
+        # + df["accumulated_income"]
+    )
+    return df
 
-df_oldest["sum"] = (
-    df_oldest["spending"]
-    + df_oldest["income"]
-    + df_oldest["support"]
-    + df_oldest["accumulated_spending"]
-    + df_oldest["accumulated_income"]
-)
-df_old["sum"] = (
-    df_old["spending"]
-    + df_old["income"]
-    + df_old["support"]
-    + df_old["accumulated_spending"]
-    + df_old["accumulated_income"]
-)
-df_new["sum"] = (
-    df_new["spending"]
-    + df_new["income"]
-    + df_new["support"]
-    + df_new["accumulated_spending"]
-    + df_new["accumulated_income"]
-)
+
+df_2016 = preprocess_df(df_2016)
+df_2017 = preprocess_df(df_2017)
+df_2018 = preprocess_df(df_2018)
+df_2019 = preprocess_df(df_2019)
+df_2020 = preprocess_df(df_2020)
+df_2021 = preprocess_df(df_2021)
+
+df_old = pd.concat([df_2018, df_2017, df_2016, ])
+df_new = df_2020
+searchyear = "df_2018"
+testyear = "df_2020"
+
+df_new["ÁHT-T"] = None
+
+df_new = df_new[df_new["sum"] > 0]
+
+print(df_2018.head(10))
 
 possible_functions = [
     "F01.a",
@@ -98,23 +108,20 @@ possible_functions = [
     "F16",
 ]
 
+import nltk
+stemmer = SnowballStemmer("hungarian")
 
-# Add text preprocessing to improve indoklas matching
+def stem(text):
+    words = text.lower().split()
+    return " ".join([stemmer.stem(word) for word in words])
+
+
 def preprocess_text(text):
-    # Handle Hungarian language
     try:
         hungarian_stopwords = stopwords.words("hungarian")
     except:
-        # Download stopwords if not available
-        import nltk
-
         nltk.download("stopwords")
         hungarian_stopwords = stopwords.words("hungarian")
-
-    # Create stemmer
-    stemmer = SnowballStemmer("hungarian")
-
-    # Lowercase, stem and remove stopwords
     if isinstance(text, str):
         words = text.lower().split()
         return " ".join(
@@ -187,6 +194,75 @@ def find_similar_with_function(
     return sorted(results, key=lambda x: x[1], reverse=True)
 
 
+y = df_new["function"]
+y
+
+X = df_new.drop(columns=["function"])
+X
+
+## CTFIDF
+
+# processed_indoklas_old = df_old["indoklas"].fillna("").apply(preprocess_text)
+# processed_indoklas_new = df_new["indoklas"].fillna("").apply(preprocess_text)
+
+
+# def precompute_tfidf(documents, functions=None):
+#     """
+#     Compute TF-IDF representations with awareness of function categories.
+
+#     Args:
+#         documents (pd.Series): Series containing processed text documents
+#         functions (pd.Series, optional): Series containing function labels for each document
+
+#     Returns:
+#         tuple: (vectorizer, tfidf_matrix, function_indices)
+#     """
+#     vectorizer = TfidfVectorizer(stop_words=None, min_df=1, ngram_range=(1, 2))
+#     tfidf_matrix = vectorizer.fit_transform(documents)
+
+#     function_indices = None
+#     if functions is not None:
+#         # Create a dictionary mapping functions to document indices
+#         function_indices = defaultdict(list)
+#         for i, func in enumerate(functions):
+#             function_indices[func].append(i)
+
+#     return vectorizer, tfidf_matrix, function_indices
+
+
+# # Include function column for better differentiation
+# vectorizer, tfidf_matrix, function_indices = precompute_tfidf(processed_indoklas_old, df_old["function"])
+# tfidf_matrix_new = vectorizer.transform(processed_indoklas_new)
+
+# # Function to find similar documents with function awareness
+# def find_similar_with_function(query_text, vectorizer, tfidf_matrix, function_indices, threshold=0.3):
+#     """
+#     Find similar documents considering function categories.
+
+#     Args:
+#         query_text (str): The processed query text
+#         vectorizer: TF-IDF vectorizer
+#         tfidf_matrix: TF-IDF matrix of reference documents
+#         function_indices: Dict mapping function labels to document indices
+#         threshold (float): Minimum similarity score
+
+#     Returns:
+#         list: List of (index, similarity, function) tuples
+#     """
+#     query_vector = vectorizer.transform([query_text])
+#     similarities = cosine_similarity(query_vector, tfidf_matrix)[0]
+
+#     # Get results with function information
+#     results = []
+#     for function, indices in function_indices.items():
+#         # Consider only documents of this function
+#         for idx in indices:
+#             if similarities[idx] > threshold:
+#                 results.append((idx, similarities[idx], function))
+
+#     # Sort by similarity score
+#     return sorted(results, key=lambda x: x[1], reverse=True)
+
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -194,11 +270,187 @@ import scipy.sparse as sp
 from sklearn.preprocessing import normalize
 from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
 
-y = df_new["function"]
-y
 
-X = df_new.drop(columns=["function"])
-X
+class CTFIDFVectorizer(TfidfTransformer):
+    def __init__(self, *args, **kwargs):
+        super(CTFIDFVectorizer, self).__init__(*args, **kwargs)
+
+    def fit(self, X: sp.csr_matrix, n_samples: int):
+        """Learn the idf vector (global term weights)"""
+        _, n_features = X.shape
+        df = np.squeeze(np.asarray(X.sum(axis=0)))
+        idf = np.log(n_samples / df)
+        self._idf_diag = sp.diags(
+            idf,
+            offsets=0,
+            shape=(n_features, n_features),
+            format="csr",
+            dtype=np.float64,
+        )
+        return self
+
+    def transform(self, X: sp.csr_matrix) -> sp.csr_matrix:
+        """Transform a count-based matrix to c-TF-IDF"""
+        X = X * self._idf_diag
+        X = normalize(X, axis=1, norm="l1", copy=False)
+        return X
+
+
+def f2c(f):
+    return [
+        "F01.a",
+        "F01.b",
+        "F01.c",
+        "F01.d",
+        "F01.e",
+        "F01.f",
+        "F02",
+        "F03.a",
+        "F03.b",
+        "F03.c",
+        "F03.d",
+        "F04.a",
+        "F04.b",
+        "F04.c",
+        "F04.d",
+        "F05.a",
+        "F05.b",
+        "F05.c",
+        "F05.d",
+        "F05.e",
+        "F06.a",
+        "F06.b",
+        "F06.c",
+        "F06.d",
+        "F06.e",
+        "F06.f",
+        "F06.g",
+        "F07",
+        "F08.a",
+        "F08.b",
+        "F08.c",
+        "F08.d",
+        "F08.e",
+        "F08.f",
+        "F09",
+        "F10",
+        "F11",
+        "F12.a",
+        "F12.b",
+        "F12.c",
+        "F12.d",
+        "F13.a",
+        "F13.b",
+        "F14",
+        "F15",
+        "F16",
+    ].index(f)
+
+
+def c2f(c):
+    return [
+        "F01.a",
+        "F01.b",
+        "F01.c",
+        "F01.d",
+        "F01.e",
+        "F01.f",
+        "F02",
+        "F03.a",
+        "F03.b",
+        "F03.c",
+        "F03.d",
+        "F04.a",
+        "F04.b",
+        "F04.c",
+        "F04.d",
+        "F05.a",
+        "F05.b",
+        "F05.c",
+        "F05.d",
+        "F05.e",
+        "F06.a",
+        "F06.b",
+        "F06.c",
+        "F06.d",
+        "F06.e",
+        "F06.f",
+        "F06.g",
+        "F07",
+        "F08.a",
+        "F08.b",
+        "F08.c",
+        "F08.d",
+        "F08.e",
+        "F08.f",
+        "F09",
+        "F10",
+        "F11",
+        "F12.a",
+        "F12.b",
+        "F12.c",
+        "F12.d",
+        "F13.a",
+        "F13.b",
+        "F14",
+        "F15",
+        "F16",
+    ][c]
+
+
+# df_old["f"] = df_old["function"].apply(f2c)
+# df_new["f"] = df_new["function"].apply(f2c)
+
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from sklearn.ensemble import RandomForestClassifier
+# from sklearn import metrics
+# from sentence_transformers import SentenceTransformer
+# from sklearn.decomposition import PCA
+
+# model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
+# # tfidf_vect = TfidfVectorizer()
+# pca = PCA(n_components=16,)
+# rf = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# # X_train = tfidf_vect.fit_transform(df_old["indoklas"])
+# embeddings = model.encode(df_old["indoklas"].values.ravel())
+# X_embedded = pca.fit_transform(embeddings)
+# y_train = df_old["f"]
+
+# rf.fit(X_embedded, y_train.values.ravel())
+
+# # X_test = tfidf_vect.transform(df_new["indoklas"])
+# embeddings_test = model.encode(df_new["indoklas"].values.ravel())
+# X_embedded_test = pca.transform(embeddings_test)
+# y_test = df_new["f"]
+
+# prediction = rf.predict(X_embedded_test)
+
+# print(metrics.classification_report(y_test, prediction))
+
+
+
+
+# df_old["f"] = df_old["function"].apply(f2c)
+# df_new["f"] = df_new["function"].apply(f2c)
+
+# docs_per_class = df_old.groupby(['f'], as_index=False).agg({'indoklas': ' '.join})
+
+# count_vectorizer = CountVectorizer(
+#     ngram_range=(1, 2), stop_words=stopwords.words("hungarian")
+# ).fit(docs_per_class.indoklas)
+# count = count_vectorizer.transform(docs_per_class.indoklas)
+# ctfidf_vectorizer = CTFIDFVectorizer().fit(count, n_samples=len(df_old))
+# ctfidf = ctfidf_vectorizer.transform(count)
+
+# test = df_new
+# count = count_vectorizer.transform(test.indoklas)
+# vector = ctfidf_vectorizer.transform(count)
+# distances = cosine_similarity(vector, ctfidf)
+# prediction = np.argmax(distances, 1)
+
+# from sklearn import metrics
+# print(metrics.classification_report(test.f, prediction))
 
 
 def get_accuracy(y_true, y_pred, count_none=True):
@@ -245,6 +497,11 @@ years = [
     {
         "excel_sheet": "2018",
         "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
+        "name_column": "MEGNEVEZÉS",
+    },
+    {
+        "excel_sheet": "2019",
+        "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
         "name_column": "MEGNEVEZÉS",
     },
 ]
@@ -294,7 +551,7 @@ def getsub_names(fid, year):
     return "\n".join(sub_names["name"].tolist())
 
 
-getsub_names("1.1.1", "2018")
+# print(getsub_names("1.1.1", testyear))
 
 
 def sample_examples(df, n=5, year="2016"):
@@ -485,13 +742,14 @@ def weighted_function_classifier(
         "fid_fuzzy": None,
         "indoklas_fuzzy": None,
         "name_fuzzy_fallback": None,
+        "llm": None,
     }
 
     # 1. ÁHT-T exact match (highest weight)
     ahtt_matches = df_old[df_old["ÁHT-T"] == ahtt]
     for _, match in ahtt_matches.iterrows():
         function = match["function"]
-        method_matches["ahtt_exact"] = function
+        # method_matches["ahtt_exact"] = function
 
     # 2. Name exact match
     name_matches = df_old[df_old["name"].str.lower() == name.lower()]
@@ -505,6 +763,7 @@ def weighted_function_classifier(
         function = match["function"]
         method_matches["fid_exact"] = function
 
+
     # 4. Fuzzy name matching
     name_similarities = []
     for i, old_row in df_old.iterrows():
@@ -512,6 +771,12 @@ def weighted_function_classifier(
         similarity = textdistance.jaro_winkler(name.lower(), old_name.lower())
         if similarity > name_threshold:  # Only consider significant matches
             name_similarities.append((i, similarity))
+
+    if not name_similarities:
+        for name_key in n2f.keys():
+            if textdistance.jaro_winkler(stem(name), name_key) > 0.84:
+                method_matches["name_fuzzy"] = n2f[name_key]
+                break
 
     name_similarities.sort(key=lambda x: x[1], reverse=True)
     for i, similarity in name_similarities[:1]:
@@ -553,10 +818,15 @@ def weighted_function_classifier(
     indoklas_similarities.sort(key=lambda x: x[1], reverse=True)
     for i, similarity in indoklas_similarities[:1]:
         match = df_old.loc[i]
-        if function_column is not None:
-            function = function_column.loc[i]
+        if type(match["function"]) == pd.Series:
+            function = match["function"].mode().values[0]
         else:
             function = match["function"]
+        print(function)
+        # if function_column is not None:
+        #     function = function_column.loc[i]
+        # else:
+        #     function = match["function"]
         method_matches["indoklas_fuzzy"] = function
 
     # 7. Fuzzy name matching fallback
@@ -577,9 +847,10 @@ def weighted_function_classifier(
         method_matches["ahtt_exact"] is None
         and method_matches["name_exact"] is None
         and method_matches["fid_exact"] is None
-        and method_matches["name_fuzzy"]
+        and method_matches["name_fuzzy"] is None
     ):
-        method_matches["llm"] = classify_llm(row, year="2018", df=df_old)
+        pass
+        # method_matches["llm"] = classify_llm(row, year="2019", df=df_old)
 
     return {
         "ahtt_exact_match": method_matches["ahtt_exact"],
@@ -596,7 +867,11 @@ def weighted_function_classifier(
 
 
 detailed_predictions = X.apply(
-    weighted_function_classifier, axis=1, df_old=df_old, tfidf_data=tfidf_data_old
+    weighted_function_classifier,
+    axis=1,
+    df_old=df_old,
+    tfidf_data=tfidf_data_old,
+    name_threshold=0.95,
 )
 
 
@@ -613,12 +888,15 @@ def process_row(row):
     elif row["name_fuzzy_match"]:
         row["predicted_function"] = row["name_fuzzy_match"]
         row["prediction_function"] = "name_fuzzy_match"
-    elif row["fid_fuzzy_match"]:
-        row["predicted_function"] = row["fid_fuzzy_match"]
-        row["prediction_function"] = "fid_fuzzy_match"
     elif row["indoklas_fuzzy"]:
         row["predicted_function"] = row["indoklas_fuzzy"]
         row["prediction_function"] = "indoklas_fuzzy"
+    elif row["llm"]:
+        row["predicted_function"] = row["llm"]
+        row["prediction_function"] = "llm"
+    elif row["fid_fuzzy_match"]:
+        row["predicted_function"] = row["fid_fuzzy_match"]
+        row["prediction_function"] = "fid_fuzzy_match"
     elif row["name_fuzzy_fallback"]:
         row["predicted_function"] = row["name_fuzzy_fallback"]
         row["prediction_function"] = "name_fuzzy_fallback"
@@ -645,6 +923,7 @@ matches_df = pd.DataFrame(
         "name_fuzzy_match": detailed_predictions.apply(lambda x: x["name_fuzzy_match"]),
         "fid_fuzzy_match": detailed_predictions.apply(lambda x: x["fid_fuzzy_match"]),
         "indoklas_fuzzy": detailed_predictions.apply(lambda x: x["indoklas_fuzzy"]),
+        "llm": detailed_predictions.apply(lambda x: x["llm"]),
         "name_fuzzy_fallback": detailed_predictions.apply(
             lambda x: x["name_fuzzy_fallback"]
         ),
@@ -659,6 +938,7 @@ matches_df = pd.DataFrame(
     }
 )
 
+print(f"Coverage: {matches_df['predicted_function'].notnull().mean():.4f}")
 
 # Add true function and evaluate accuracy
 matches_df["true_function"] = y
@@ -679,6 +959,7 @@ for method in [
     "fid_fuzzy_match",
     "indoklas_fuzzy",
     "name_fuzzy_fallback",
+    "llm",
 ]:
     mask = matches_df[method].notnull()
     if mask.sum() > 0:
@@ -710,6 +991,8 @@ matches_df["y"] = y
 tutifilter = matches_df["prediction_function"].apply(
     lambda x: x in ["fid_fuzzy_match", "indoklas_fuzzy", None, "name_fuzzy_fallback"]
 )
+matches_df["tuti"] = ~tutifilter
+matches_df.to_excel(f"matches_df_{testyear}.xlsx", index=False)
 matches_df_tuti = matches_df[~tutifilter]
 matches_df_nemtuti = matches_df[tutifilter]
 
@@ -733,6 +1016,18 @@ accuracy_sum = (
 
 print("tuti accuracy in percentage of the total sum: ", accuracy_sum)
 
+accuracy_coverage = (
+    matches_df_tuti[matches_df_tuti["predicted_function"].notna()]["sum"].sum()
+    / matches_df["sum"].sum()
+)
+print("tuti coverage in percentage of the total sum: ", accuracy_coverage)
+
+number_of_tuti = matches_df_tuti["predicted_function"].notna().sum()
+print(f"number of tuti: {number_of_tuti}")
+
+total_rows = matches_df.shape[0]
+print(f"total rows: {total_rows}")
+
 total_accuracy_sum = (
     matches_df[matches_df["predicted_function"] == matches_df["y"]]["sum"].sum()
     / matches_df["sum"].sum()
@@ -749,6 +1044,32 @@ cumulative_accuracy_by_sum = (
     )
     / matches_df["sum"].sum()
 ).head(20)
+
+totalsum = matches_df["sum"].sum()
+matches_df_nemtuti["relative_sum"] = matches_df_nemtuti["sum"] / totalsum
+print(
+    matches_df_nemtuti.sort_values("sum", ascending=False)[
+        ["name", "sum", "relative_sum"]
+    ].head(20)
+)
+matches_df_nemtuti.sort_values("sum", ascending=False)[
+    ["name", "sum", "relative_sum"]
+].to_excel(f"matches_df_nemtuti_{testyear}.xlsx", index=False)
+
+print("Cumulative accuracy by sum:")
+print(cumulative_accuracy_by_sum)
+
+cumulative_accuracy_alt = (
+    (
+        matches_df_nemtuti["sum"].sort_values(ascending=False).cumsum()
+        + matches_df_tuti[matches_df_tuti["predicted_function"].notna()]["sum"].sum()
+    )
+    / matches_df["sum"].sum()
+).head(20)
+
+print("Cumulative accuracy alt:")
+print(cumulative_accuracy_alt)
+
 
 # Analyze the performance by function category
 function_performance = {}
