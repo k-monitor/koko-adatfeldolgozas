@@ -19,6 +19,7 @@ from nltk.stem import SnowballStemmer
 from collections import defaultdict
 from time import sleep
 import json
+from sklearn import metrics
 
 with open("n2f.json", "r") as f:
     n2f = json.load(f)
@@ -51,12 +52,19 @@ df_2019 = preprocess_df(df_2019)
 df_2020 = preprocess_df(df_2020)
 df_2021 = preprocess_df(df_2021)
 
-df_old = pd.concat([df_2018, df_2017, df_2016, ])
+df_old = pd.concat(
+    [
+        df_2019,
+        df_2018,
+        df_2017,
+        df_2016,
+    ]
+)
 df_new = df_2020
-searchyear = "df_2018"
+searchyear = "df_2016"
 testyear = "df_2020"
 
-df_new["ÁHT-T"] = None
+# df_new["ÁHT-T"] = None
 
 df_new = df_new[df_new["sum"] > 0]
 
@@ -79,8 +87,11 @@ possible_functions = [
     "F04.c",
     "F04.d",
     "F05.a",
+    "F05.b",
+    "F05.c",
     "F05.d",
     "F05.e",
+    "F06.a",
     "F06.b",
     "F06.c",
     "F06.d",
@@ -109,7 +120,9 @@ possible_functions = [
 ]
 
 import nltk
+
 stemmer = SnowballStemmer("hungarian")
+
 
 def stem(text):
     words = text.lower().split()
@@ -297,105 +310,11 @@ class CTFIDFVectorizer(TfidfTransformer):
 
 
 def f2c(f):
-    return [
-        "F01.a",
-        "F01.b",
-        "F01.c",
-        "F01.d",
-        "F01.e",
-        "F01.f",
-        "F02",
-        "F03.a",
-        "F03.b",
-        "F03.c",
-        "F03.d",
-        "F04.a",
-        "F04.b",
-        "F04.c",
-        "F04.d",
-        "F05.a",
-        "F05.b",
-        "F05.c",
-        "F05.d",
-        "F05.e",
-        "F06.a",
-        "F06.b",
-        "F06.c",
-        "F06.d",
-        "F06.e",
-        "F06.f",
-        "F06.g",
-        "F07",
-        "F08.a",
-        "F08.b",
-        "F08.c",
-        "F08.d",
-        "F08.e",
-        "F08.f",
-        "F09",
-        "F10",
-        "F11",
-        "F12.a",
-        "F12.b",
-        "F12.c",
-        "F12.d",
-        "F13.a",
-        "F13.b",
-        "F14",
-        "F15",
-        "F16",
-    ].index(f)
+    return possible_functions.index(f)
 
 
 def c2f(c):
-    return [
-        "F01.a",
-        "F01.b",
-        "F01.c",
-        "F01.d",
-        "F01.e",
-        "F01.f",
-        "F02",
-        "F03.a",
-        "F03.b",
-        "F03.c",
-        "F03.d",
-        "F04.a",
-        "F04.b",
-        "F04.c",
-        "F04.d",
-        "F05.a",
-        "F05.b",
-        "F05.c",
-        "F05.d",
-        "F05.e",
-        "F06.a",
-        "F06.b",
-        "F06.c",
-        "F06.d",
-        "F06.e",
-        "F06.f",
-        "F06.g",
-        "F07",
-        "F08.a",
-        "F08.b",
-        "F08.c",
-        "F08.d",
-        "F08.e",
-        "F08.f",
-        "F09",
-        "F10",
-        "F11",
-        "F12.a",
-        "F12.b",
-        "F12.c",
-        "F12.d",
-        "F13.a",
-        "F13.b",
-        "F14",
-        "F15",
-        "F16",
-    ][c]
+    return possible_functions[c]
 
 
 # df_old["f"] = df_old["function"].apply(f2c)
@@ -429,28 +348,39 @@ def c2f(c):
 # print(metrics.classification_report(y_test, prediction))
 
 
+df_old["f"] = df_old["function"].apply(f2c)
+print(df_new["function"].head(10))
+if df_new[df_new["function"] == 0.0].empty:
+    df_new["f"] = df_new["function"].apply(f2c)
+
+docs_per_class = df_old.groupby(["f"], as_index=False).agg({"indoklas": " ".join})
+
+count_vectorizer = CountVectorizer(
+    ngram_range=(1, 2), stop_words=stopwords.words("hungarian")
+).fit(docs_per_class.indoklas)
+count = count_vectorizer.transform(docs_per_class.indoklas)
+ctfidf_vectorizer = CTFIDFVectorizer().fit(count, n_samples=len(df_old))
+ctfidf = ctfidf_vectorizer.transform(count)
+
+if "f" in df_new.columns:
+    test = df_new
+    count = count_vectorizer.transform(test.indoklas)
+    vector = ctfidf_vectorizer.transform(count)
+    distances = cosine_similarity(vector, ctfidf)
+    prediction = np.argmax(distances, 1)
+    print(
+        metrics.classification_report(
+            test.f, prediction, target_names=possible_functions
+        )
+    )
 
 
-# df_old["f"] = df_old["function"].apply(f2c)
-# df_new["f"] = df_new["function"].apply(f2c)
-
-# docs_per_class = df_old.groupby(['f'], as_index=False).agg({'indoklas': ' '.join})
-
-# count_vectorizer = CountVectorizer(
-#     ngram_range=(1, 2), stop_words=stopwords.words("hungarian")
-# ).fit(docs_per_class.indoklas)
-# count = count_vectorizer.transform(docs_per_class.indoklas)
-# ctfidf_vectorizer = CTFIDFVectorizer().fit(count, n_samples=len(df_old))
-# ctfidf = ctfidf_vectorizer.transform(count)
-
-# test = df_new
-# count = count_vectorizer.transform(test.indoklas)
-# vector = ctfidf_vectorizer.transform(count)
-# distances = cosine_similarity(vector, ctfidf)
-# prediction = np.argmax(distances, 1)
-
-# from sklearn import metrics
-# print(metrics.classification_report(test.f, prediction))
+def classify(indoklas):
+    count = count_vectorizer.transform([indoklas])
+    vector = ctfidf_vectorizer.transform(count)
+    distances = cosine_similarity(vector, ctfidf)
+    prediction = np.argmax(distances, 1)
+    return c2f(prediction[0])
 
 
 def get_accuracy(y_true, y_pred, count_none=True):
@@ -508,6 +438,14 @@ years = [
 
 excel_dfs = {}
 
+
+def to_numbers(row):
+    """
+    Convert a row of strings to numbers.
+    """
+    return [int(x) if str(x).isdigit() else x for x in row]
+
+
 for year in years:
     name_column = year["name_column"]
     excel_sheet = year["excel_sheet"]
@@ -518,18 +456,71 @@ for year in years:
     df = df[1:]
 
     df = df[df["FEJEZET"].notna()]
+    df["CIM"].fillna(0, inplace=True)
+    df["ALCIM"].fillna(0, inplace=True)
+    df["JOGCIM1"].fillna(0, inplace=True)
+    df["JOGCIM2"].fillna(0, inplace=True)
 
-    df["fid"] = (
-        df["FEJEZET"].astype(int).astype(str)
-        + "."
-        + df["CIM"].astype(int).astype(str)
-        + "."
-        + df["ALCIM"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM1"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM2"].astype(int).astype(str)
-    )
+    numbered_rows = [
+        to_numbers(row)
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
+            index=False, name=None
+        )
+    ]
+
+    print("Original rows:")
+    print(numbered_rows[:10])  # Print first 10 for debugging
+
+    filled_rows = []
+    prev_filled_row = None
+
+    for current_row_sparse in numbered_rows:
+        new_filled_row = [0] * len(current_row_sparse)
+
+        if prev_filled_row is None:
+            # For the first row, the filled row is just a copy of the sparse row
+            new_filled_row = current_row_sparse.copy()
+        else:
+            # This flag tracks if a non-zero value in current_row_sparse has differed
+            # from prev_filled_row, thereby establishing a new "context".
+            context_established_by_current_sparse_row = False
+            for i in range(len(current_row_sparse)):
+                if context_established_by_current_sparse_row:
+                    # If context has changed, subsequent values are taken directly from current_row_sparse.
+                    # If current_row_sparse[i] is 0, new_filled_row[i] will be 0.
+                    new_filled_row[i] = current_row_sparse[i]
+                else:
+                    # Context not yet changed by a differing non-zero value in current_row_sparse.
+                    if current_row_sparse[i] != 0:
+                        new_filled_row[i] = current_row_sparse[i]
+                        # Check if this non-zero value differs from prev_filled_row, thus changing context.
+                        if prev_filled_row[i] != current_row_sparse[i]:
+                            context_established_by_current_sparse_row = True
+                    else:  # current_row_sparse[i] is 0
+                        # Inherit from prev_filled_row as context hasn't changed at this point.
+                        new_filled_row[i] = prev_filled_row[i]
+
+        filled_rows.append(new_filled_row)
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
+    print("Filled rows:")
+    print(filled_rows[:10])  # Print first 10 for debugging
+
+    numbered_rows = filled_rows
+
+    fids = [
+        ".".join([str(i) for i in l])
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        for l in numbered_rows
+    ]
+
+    # concat 'FEJEZET', 'CIM', 'ALCIM', 'JOGCIM1'
+    df["fid"] = fids
 
     df["fid"] = (
         df["fid"]
@@ -577,7 +568,7 @@ def generate(item, description, examples):
         api_key=os.environ.get("GEMINI_API_KEY"),
     )
 
-    model = "gemini-2.5-flash-preview-04-17"
+    model = "gemini-2.5-flash-preview-05-20"
     prompt = f"""
 Egy költségvetési tételt szeretnék besorolni a következő funkciók valamelyikébe.
 
@@ -743,13 +734,14 @@ def weighted_function_classifier(
         "indoklas_fuzzy": None,
         "name_fuzzy_fallback": None,
         "llm": None,
+        "ctfidf": None,
     }
 
     # 1. ÁHT-T exact match (highest weight)
     ahtt_matches = df_old[df_old["ÁHT-T"] == ahtt]
     for _, match in ahtt_matches.iterrows():
         function = match["function"]
-        # method_matches["ahtt_exact"] = function
+        method_matches["ahtt_exact"] = function
 
     # 2. Name exact match
     name_matches = df_old[df_old["name"].str.lower() == name.lower()]
@@ -762,7 +754,6 @@ def weighted_function_classifier(
     for _, match in fid_matches.iterrows():
         function = match["function"]
         method_matches["fid_exact"] = function
-
 
     # 4. Fuzzy name matching
     name_similarities = []
@@ -783,6 +774,9 @@ def weighted_function_classifier(
         match = df_old.iloc[i]
         function = match["function"]
         method_matches["name_fuzzy"] = function
+
+    if indoklas:
+        method_matches["ctfidf"] = classify(indoklas)
 
     # 5. Fuzzy FID matching
     fid_similarities = []
@@ -822,7 +816,6 @@ def weighted_function_classifier(
             function = match["function"].mode().values[0]
         else:
             function = match["function"]
-        print(function)
         # if function_column is not None:
         #     function = function_column.loc[i]
         # else:
@@ -862,6 +855,7 @@ def weighted_function_classifier(
         "name_fuzzy_fallback": method_matches["name_fuzzy_fallback"],
         "oldrow": row.to_dict(),
         "llm": method_matches["llm"],
+        "ctfidf": method_matches["ctfidf"],
         "predicted_function": None,
     }
 
@@ -900,6 +894,9 @@ def process_row(row):
     elif row["name_fuzzy_fallback"]:
         row["predicted_function"] = row["name_fuzzy_fallback"]
         row["prediction_function"] = "name_fuzzy_fallback"
+    elif row["ctfidf"]:
+        row["predicted_function"] = row["ctfidf"]
+        row["prediction_function"] = "ctfidf"
     else:
         row["predicted_function"] = None
         row["prediction_function"] = None
@@ -923,6 +920,7 @@ matches_df = pd.DataFrame(
         "name_fuzzy_match": detailed_predictions.apply(lambda x: x["name_fuzzy_match"]),
         "fid_fuzzy_match": detailed_predictions.apply(lambda x: x["fid_fuzzy_match"]),
         "indoklas_fuzzy": detailed_predictions.apply(lambda x: x["indoklas_fuzzy"]),
+        "ctfidf": detailed_predictions.apply(lambda x: x["ctfidf"]),
         "llm": detailed_predictions.apply(lambda x: x["llm"]),
         "name_fuzzy_fallback": detailed_predictions.apply(
             lambda x: x["name_fuzzy_fallback"]
@@ -951,6 +949,10 @@ print(f"Overall accuracy: {matches_df['is_correct'].mean():.4f}")
 print(f"Coverage: {matches_df['predicted_function'].notnull().mean():.4f}")
 
 # Show individual methods' accuracy
+db_coverages = []
+sum_coverages = []
+db_accuracys = []
+sum_accuracys = []
 for method in [
     "ahtt_exact_match",
     "name_exact_match",
@@ -959,15 +961,25 @@ for method in [
     "fid_fuzzy_match",
     "indoklas_fuzzy",
     "name_fuzzy_fallback",
-    "llm",
+    # "llm",
+    "ctfidf",
 ]:
     mask = matches_df[method].notnull()
-    if mask.sum() > 0:
-        accuracy = (
-            matches_df[method] == matches_df["true_function"]
-        ).sum() / mask.sum()
-        coverage = mask.sum() / len(matches_df)
-        print(f"{method}: Accuracy = {accuracy:.4f}, Coverage = {coverage:.4f}")
+    accuracy = (matches_df[method] == matches_df["true_function"]).sum() / mask.sum()
+    coverage = mask.sum() / len(matches_df)
+    print(f"darab: {method}: Accuracy = {accuracy:.4f}, Coverage = {coverage:.4f}")
+    db_coverages.append(str(coverage))
+    db_accuracys.append(str(accuracy))
+    sum_accuracy = (
+        matches_df[matches_df[method] == matches_df["true_function"]]["sum"].sum()
+        / matches_df[mask]["sum"].sum()
+    )
+    sum_coverage = matches_df[mask]["sum"].sum() / matches_df["sum"].sum()
+    sum_coverages.append(str(sum_coverage))
+    sum_accuracys.append(str(sum_accuracy))
+    print(
+        f"összeg: {method}: Accuracy = {sum_accuracy:.4f}, Coverage = {sum_coverage:.4f}"
+    )
 
 # Display a sample of the results
 matches_df.head(10)
@@ -989,7 +1001,8 @@ if indoklas_mask.sum() > 0:
 matches_df["y"] = y
 
 tutifilter = matches_df["prediction_function"].apply(
-    lambda x: x in ["fid_fuzzy_match", "indoklas_fuzzy", None, "name_fuzzy_fallback"]
+    lambda x: x
+    in ["fid_fuzzy_match", "indoklas_fuzzy", None, "name_fuzzy_fallback", "ctfidf"]
 )
 matches_df["tuti"] = ~tutifilter
 matches_df.to_excel(f"matches_df_{testyear}.xlsx", index=False)
@@ -1003,24 +1016,57 @@ tuti_accuracy = get_accuracy(
 tuti_coverage = matches_df_tuti["predicted_function"].notna().sum() / len(
     detailed_predictions
 )
+nemtuti_accuracy = get_accuracy(
+    matches_df_nemtuti["y"], matches_df_nemtuti["predicted_function"], count_none=False
+)
+nemtuti_coverage = matches_df_nemtuti["predicted_function"].notna().sum() / len(
+    detailed_predictions
+)
 
 print(f"Tuti accuracy: {tuti_accuracy:.4f}")
 print(f"Tuti coverage: {tuti_coverage:.4f}")
 
-accuracy_sum = (
+tuti_accuracy_sum = (
     matches_df_tuti[matches_df_tuti["predicted_function"] == matches_df_tuti["y"]][
         "sum"
     ].sum()
     / matches_df["sum"].sum()
 )
 
-print("tuti accuracy in percentage of the total sum: ", accuracy_sum)
+print("tuti accuracy in percentage of the total sum: ", tuti_accuracy_sum)
 
-accuracy_coverage = (
+tuti_coverage_sum = (
     matches_df_tuti[matches_df_tuti["predicted_function"].notna()]["sum"].sum()
     / matches_df["sum"].sum()
 )
-print("tuti coverage in percentage of the total sum: ", accuracy_coverage)
+print("tuti coverage in percentage of the total sum: ", tuti_coverage)
+
+nemtuti_coverage_sum = (
+    matches_df_nemtuti[matches_df_nemtuti["predicted_function"].notna()]["sum"].sum()
+    / matches_df["sum"].sum()
+)
+nemtuti_accuracy_sum = (
+    matches_df_nemtuti[
+        matches_df_nemtuti["predicted_function"] == matches_df_nemtuti["y"]
+    ]["sum"].sum()
+    / matches_df["sum"].sum()
+)
+
+sum_coverages.append(str(tuti_coverage_sum))
+sum_accuracys.append(str(tuti_accuracy_sum))
+db_coverages.append(str(tuti_coverage))
+db_accuracys.append(str(tuti_accuracy))
+
+sum_coverages.append(str(nemtuti_coverage_sum))
+sum_accuracys.append(str(nemtuti_accuracy_sum))
+db_coverages.append(str(nemtuti_coverage))
+db_accuracys.append(str(nemtuti_accuracy))
+
+print("db_coverage\n", "\n".join(db_coverages))
+print("db_accuracy\n", "\n".join(db_accuracys))
+print("sum_coverage\n", "\n".join(sum_coverages))
+print("sum_accuracy\n", "\n".join(sum_accuracys))
+
 
 number_of_tuti = matches_df_tuti["predicted_function"].notna().sum()
 print(f"number of tuti: {number_of_tuti}")
