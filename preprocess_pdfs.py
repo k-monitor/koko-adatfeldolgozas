@@ -6,6 +6,11 @@ import os
 import PyPDF2  # Add this import for PDF splitting
 import re
 import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 excel_file = "adatok/koltsegvetesek.xlsx"
 
@@ -210,7 +215,13 @@ def prepare_export_summary(section_summary):
     return export_summary
 
 
-def process_year(excel_sheet, pdf_file, output_dir="split_pdfs"):
+def process_year(excel_sheet: str, pdf_file: str, output_dir: str = "split_pdfs") -> str:
+    """Process a single year's data and return the JSON file path."""
+    if not os.path.exists(pdf_file):
+        raise FileNotFoundError(f"PDF file not found: {pdf_file}")
+        
+    logger.info(f"Processing year {excel_sheet} with PDF {pdf_file}")
+    
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
     sections = [
         s.split(" ")[0] + " " + " ".join(s.split(" ")[1:]).title()
@@ -262,18 +273,36 @@ def process_year(excel_sheet, pdf_file, output_dir="split_pdfs"):
 
     export_summary = prepare_export_summary(section_summary)
 
-    # Save to disk
-    json_file_path = f"indoklasok/feldolgozott/{year_prefix}.json"
-    with open(json_file_path, "w", encoding="utf-8") as f:
-        json.dump(export_summary, f, ensure_ascii=False, indent=2)
+    # Save to disk with proper error handling
+    os.makedirs(f"indoklasok/feldolgozott/{year_prefix}", exist_ok=True)
+    json_file_path = f"indoklasok/feldolgozott/{year_prefix}/summary.json"
+    
+    try:
+        with open(json_file_path, "w", encoding="utf-8") as f:
+            json.dump(export_summary, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved processed data to {json_file_path}")
+    except Exception as e:
+        logger.error(f"Error saving JSON file {json_file_path}: {e}")
+        raise
 
     return json_file_path
 
 
-# Process all years and collect JSON file paths
-json_files = []
-for year in years:
-    json_file = process_year(year, f"indoklasok/nyers/javaslatok/{year}.pdf")
-    json_files.append(json_file)
+def main():
+    """Main processing function."""
+    # Process all years and collect JSON file paths
+    json_files = []
+    for year in years:
+        try:
+            json_file = process_year(year, f"indoklasok/nyers/javaslatok/{year}.pdf", output_dir=f'indoklasok/feldolgozott/{year}')
+            json_files.append(json_file)
+        except Exception as e:
+            logger.error(f"Failed to process year {year}: {e}")
+            continue
 
-print(f"Generated JSON files: {json_files}")
+    logger.info(f"Generated JSON files: {json_files}")
+    return json_files
+
+
+if __name__ == "__main__":
+    main()
