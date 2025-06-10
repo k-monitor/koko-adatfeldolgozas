@@ -20,6 +20,7 @@ from collections import defaultdict
 from time import sleep
 import json
 from sklearn import metrics
+from collections import Counter
 
 with open("n2f.json", "r") as f:
     n2f = json.load(f)
@@ -54,15 +55,15 @@ df_2021 = preprocess_df(df_2021)
 
 df_old = pd.concat(
     [
-        df_2019,
-        df_2018,
-        df_2017,
+        # df_2019,
+        # df_2018,
+        # df_2017,
         df_2016,
     ]
 )
-df_new = df_2020
+df_new = df_2017
 searchyear = "df_2016"
-testyear = "df_2020"
+testyear = "df_2017"
 
 # df_new["ÁHT-T"] = None
 
@@ -759,13 +760,13 @@ def weighted_function_classifier(
     name_similarities = []
     for i, old_row in df_old.iterrows():
         old_name = old_row["name"]
-        similarity = textdistance.jaro_winkler(name.lower(), old_name.lower())
-        if similarity > name_threshold:  # Only consider significant matches
+        similarity = textdistance.algorithms.levenshtein.normalized_similarity(name.lower(), old_name.lower(),)
+        if similarity > 0.68:  # Only consider significant matches
             name_similarities.append((i, similarity))
 
     if not name_similarities:
         for name_key in n2f.keys():
-            if textdistance.jaro_winkler(stem(name), name_key) > 0.84:
+            if textdistance.algorithms.levenshtein.normalized_similarity(stem(name), name_key, ) > 0.64:
                 method_matches["name_fuzzy"] = n2f[name_key]
                 break
 
@@ -781,15 +782,15 @@ def weighted_function_classifier(
     # 5. Fuzzy FID matching
     fid_similarities = []
     for i, old_row in df_old.iterrows():
-        search_fid = ".".join(fid.split(".")[:-1])
+        search_fid = ".".join(fid.split(".")[:-1])+"."
         if old_row["fid"].startswith(search_fid):
             similarity = fid.count(".") / old_row["fid"].count(".")
             fid_similarities.append((i, similarity))
 
     fid_similarities.sort(key=lambda x: x[1], reverse=True)
-    for i, similarity in fid_similarities[:1]:
-        match = df_old.iloc[i]
-        function = match["function"]
+    cnt = Counter([df_old.iloc[i]["function"] for i, s in fid_similarities])
+    if cnt.most_common(1) and cnt.most_common(1)[0] and cnt.most_common(1)[0][0]:
+        function = cnt.most_common(1)[0][0]
         method_matches["fid_fuzzy"] = function
 
     # 6. Fuzzy indoklas matching with function awareness
@@ -826,8 +827,8 @@ def weighted_function_classifier(
     name_similarities_fallback = []
     for i, old_row in df_old.iterrows():
         old_name = old_row["name"]
-        similarity = textdistance.jaro_winkler(name.lower(), old_name.lower())
-        if similarity > 0.5:  # Only consider significant matches
+        similarity = textdistance.algorithms.levenshtein.normalized_similarity(name.lower(), old_name.lower(), )
+        if similarity > 0.2:  # Only consider significant matches
             name_similarities_fallback.append((i, similarity))
 
     name_similarities_fallback.sort(key=lambda x: x[1], reverse=True)
@@ -870,37 +871,97 @@ detailed_predictions = X.apply(
 
 
 def process_row(row):
-    if row["ahtt_exact_match"]:
-        row["predicted_function"] = row["ahtt_exact_match"]
-        row["prediction_function"] = "ahtt_exact_match"
-    elif row["name_exact_match"]:
-        row["predicted_function"] = row["name_exact_match"]
-        row["prediction_function"] = "name_exact_match"
-    elif row["fid_exact_match"]:
-        row["predicted_function"] = row["fid_exact_match"]
-        row["prediction_function"] = "fid_exact_match"
-    elif row["name_fuzzy_match"]:
-        row["predicted_function"] = row["name_fuzzy_match"]
-        row["prediction_function"] = "name_fuzzy_match"
-    elif row["indoklas_fuzzy"]:
-        row["predicted_function"] = row["indoklas_fuzzy"]
-        row["prediction_function"] = "indoklas_fuzzy"
-    elif row["llm"]:
-        row["predicted_function"] = row["llm"]
-        row["prediction_function"] = "llm"
-    elif row["fid_fuzzy_match"]:
-        row["predicted_function"] = row["fid_fuzzy_match"]
-        row["prediction_function"] = "fid_fuzzy_match"
-    elif row["name_fuzzy_fallback"]:
-        row["predicted_function"] = row["name_fuzzy_fallback"]
-        row["prediction_function"] = "name_fuzzy_fallback"
-    elif row["ctfidf"]:
-        row["predicted_function"] = row["ctfidf"]
-        row["prediction_function"] = "ctfidf"
+    """Process row using the optimized Random Forest model"""
+    
+    import joblib
+    import numpy as np
+    import pandas as pd
+    
+    try:
+        # Load the optimized Random Forest model
+        rf_model = joblib.load('random_forest_classifier_optimized.joblib')
+        feature_info = joblib.load('rf_feature_info_optimized.joblib')
+    except FileNotFoundError:
+        print("Optimized Random Forest model not found. Using fallback ensemble method.")
+        return row
+    
+    def predict_with_rf(input_row):
+        """Predict using the optimized Random Forest"""
+        try:
+            # Prepare features using the same encoding as training
+            feature_columns = feature_info['feature_columns']
+            all_encoded_features = feature_info['all_encoded_features']
+            
+            # Create feature vector
+            X_pred = pd.DataFrame(0, index=[0], columns=all_encoded_features)
+            
+            # For each feature column, create one-hot encoded features
+            for col in feature_columns:
+                if col in input_row and input_row[col] is not None:
+                    value = str(input_row[col]).strip()
+                    if value == '' or pd.isna(value):
+                        value = 'UNKNOWN'
+                    
+                    # Create dummy variable name
+                    dummy_col = f"{col}_{value}"
+                    
+                    # Set the corresponding dummy variable if it exists
+                    if dummy_col in X_pred.columns:
+                        X_pred.loc[0, dummy_col] = 1
+                    else:
+                        # Handle unseen categories by setting UNKNOWN if available
+                        unknown_col = f"{col}_UNKNOWN"
+                        if unknown_col in X_pred.columns:
+                            X_pred.loc[0, unknown_col] = 1
+            
+            # Make prediction
+            prediction = rf_model.predict(X_pred)[0]
+            probabilities = rf_model.predict_proba(X_pred)[0]
+            confidence = np.max(probabilities)
+            
+            return prediction, confidence
+            
+        except Exception as e:
+            print(f"Error in Random Forest prediction: {e}")
+            return None, 0.0
+    
+    # Get prediction from Random Forest
+    prediction, confidence = predict_with_rf(row)
+    
+    # Set the results
+    row["predicted_function"] = prediction
+    row["ensemble_confidence"] = confidence
+    
+    # Determine which method contributed to the prediction
+    if prediction is not None:
+        # Check which features are available to determine prediction method
+        feature_columns = ['ahtt_exact_match', 'name_exact_match', 'fid_exact_match', 
+                          'name_fuzzy_match', 'fid_fuzzy_match', 'indoklas_fuzzy', 
+                          'ctfidf', 'name_fuzzy_fallback']
+        
+        # Priority order for determining prediction method
+        method_priority = [
+            'ahtt_exact_match',
+            'name_exact_match', 
+            'fid_exact_match',
+            'name_fuzzy_match',
+            'fid_fuzzy_match',
+            'ctfidf',
+            'indoklas_fuzzy',
+            'name_fuzzy_fallback'
+        ]
+        
+        # Find the highest priority method that has a non-null value
+        prediction_method = None
+        for method in method_priority:
+            if method in row and row[method] is not None and not pd.isna(row[method]):
+                prediction_method = method
+                break
+        
+        row["prediction_function"] = prediction_method if prediction_method else "random_forest"
     else:
-        row["predicted_function"] = None
         row["prediction_function"] = None
-
+    
     return row
 
 
@@ -933,6 +994,9 @@ matches_df = pd.DataFrame(
         "indoklas": detailed_predictions.apply(lambda x: x["oldrow"]["indoklas"]),
         "ÁHT-T": detailed_predictions.apply(lambda x: x["oldrow"]["ÁHT-T"]),
         "sum": detailed_predictions.apply(lambda x: x["oldrow"]["sum"]),
+        "ensemble_confidence": detailed_predictions.apply(
+            lambda x: x["ensemble_confidence"]
+        ),
     }
 )
 
@@ -1004,6 +1068,7 @@ tutifilter = matches_df["prediction_function"].apply(
     lambda x: x
     in ["fid_fuzzy_match", "indoklas_fuzzy", None, "name_fuzzy_fallback", "ctfidf"]
 )
+tutifilter = matches_df["ensemble_confidence"] < 0.25
 matches_df["tuti"] = ~tutifilter
 matches_df.to_excel(f"matches_df_{testyear}.xlsx", index=False)
 matches_df_tuti = matches_df[~tutifilter]

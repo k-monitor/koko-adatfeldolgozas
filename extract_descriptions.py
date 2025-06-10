@@ -20,16 +20,36 @@ load_dotenv(dotenv_path=".env")
 excel_file = "xlsx/Elfogadott költségvetések.xlsx"
 
 years = [
-    {
-        "excel_sheet": "2016",
-        "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
-        "name_column": "NEV",
-    },
+    # {
+    #     "excel_sheet": "2016",
+    #     "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
+    #     "name_column": "NEV",
+    # },
     # {
     #     "excel_sheet": "2017",
     #     "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
     #     "name_column": "MEGNEVEZÉS",
     # },
+    # {
+    #     "excel_sheet": "2018",
+    #     "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
+    #     "name_column": "MEGNEVEZÉS",
+    # },
+    # {
+    #     "excel_sheet": "2019",
+    #     "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
+    #     "name_column": "MEGNEVEZÉS",
+    # },
+    # {
+    #     "excel_sheet": "2020",
+    #     "pdf_file": "javaslatok/2020 összefűzött javaslat.pdf",
+    #     "name_column": "MEGNEVEZÉS",
+    # },
+    {
+        "excel_sheet": "2021",
+        "pdf_file": "javaslatok/2021 összefűzött javaslat.pdf",
+        "name_column": "MEGNEVEZÉS",
+    },
 ]
 
 
@@ -41,7 +61,7 @@ def generate(prompt, file_path, temp):
     files = [
         client.files.upload(file=file_path),
     ]
-    model = "gemini-2.5-flash-preview-04-17"
+    model = "gemini-2.5-flash-preview-05-20"
     contents = [
         types.Content(
             role="user",
@@ -148,12 +168,19 @@ def positive_length(a):
     return len([x for x in a if isinstance(x, int) and x > 0])
 
 
+def init_row(row):
+    r = [0] * 5
+    for i, v in enumerate(row.split(".")):
+        if v.isdigit():
+            r[i] = int(v)
+        else:
+            r[i] = v
+    return r
+
 def get_deduplicated_rows(df):
     numbered_rows = [
-        to_numbers(row)
-        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
-            index=False, name=None
-        )
+        init_row(row)
+        for row in df["fid"]
     ]
     deduplicated_rows = []
     for i, row in enumerate(numbered_rows):
@@ -210,6 +237,8 @@ Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes i
 
 Lehet, hogy a dokumentum nem tartalmazza a kért részeket{', hanem csak az elejét' if is_part else ''}. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
 
+Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
+
 Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket: {", ".join(filtered_rows)}
 """
 
@@ -237,6 +266,8 @@ Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes i
 
 Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel.
 
+Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
+
 Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
 {"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
 """
@@ -263,15 +294,23 @@ Pl.: VI.1.2.3
 
 Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
 
-Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel. Ha nem találnál konkrétan jelzett erre utaló részt a szövegben, akkor is írj indoklást az adott nevekhez a szöveg alapján.
+Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
+
+Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
 
 Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
 {"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
 """
 
 
+def to_numbers(row):
+    """
+    Convert a row of strings to numbers.
+    """
+    return [int(x) if str(x).isdigit() else x for x in row]
+
 def extract_text_from_section(
-    pdf_file, section, str_rows, names, start_from=0, part=None
+    pdf_file, section, str_rows, names_by_fid, start_from=0, part=None
 ):
     is_part = part is not None
     roman_section = to_roman_numeral(section)
@@ -280,6 +319,9 @@ def extract_text_from_section(
         for row in str_rows
         if row.startswith(f"{section}.")
     ]
+    fids = [row for row in str_rows if row.startswith(f"{section}.")]
+    names = [names_by_fid[r] for r in fids]
+
     filtered_rows = filtered_rows[start_from:]
     print(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
     names = names[start_from:]
@@ -401,20 +443,79 @@ for year in years:
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
     df.columns = df.iloc[0]
     df = df[1:]
-
+    df["ALCIM"].fillna(0, inplace=True)
+    df["JOGCIM1"].fillna(0, inplace=True)
+    df["JOGCIM2"].fillna(0, inplace=True)
     df = df[df["FEJEZET"].notna()]
 
-    df["fid"] = (
-        df["FEJEZET"].astype(int).astype(str)
-        + "."
-        + df["CIM"].astype(int).astype(str)
-        + "."
-        + df["ALCIM"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM1"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM2"].astype(int).astype(str)
-    )
+
+    print(df.head(10))
+    df["CIM"].fillna(0, inplace=True)
+    df["ALCIM"].fillna(0, inplace=True)
+    df["JOGCIM1"].fillna(0, inplace=True)
+    df["JOGCIM2"].fillna(0, inplace=True)
+
+    numbered_rows = [
+        to_numbers(row)
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
+            index=False, name=None
+        )
+    ]
+
+    print("Original rows:")
+    print(numbered_rows[:50])  # Print first 10 for debugging
+
+    filled_rows = []
+    prev_filled_row = None
+
+    for current_row_sparse in numbered_rows:
+        new_filled_row = [0] * len(current_row_sparse)
+
+        if prev_filled_row is None:
+            # For the first row, the filled row is just a copy of the sparse row
+            new_filled_row = current_row_sparse.copy()
+        else:
+            # This flag tracks if a non-zero value in current_row_sparse has differed
+            # from prev_filled_row, thereby establishing a new "context".
+            context_established_by_current_sparse_row = False
+            for i in range(len(current_row_sparse)):
+                if context_established_by_current_sparse_row:
+                    # If context has changed, subsequent values are taken directly from current_row_sparse.
+                    # If current_row_sparse[i] is 0, new_filled_row[i] will be 0.
+                    new_filled_row[i] = current_row_sparse[i]
+                else:
+                    # Context not yet changed by a differing non-zero value in current_row_sparse.
+                    if current_row_sparse[i] != 0:
+                        new_filled_row[i] = current_row_sparse[i]
+                        # Check if this non-zero value differs from prev_filled_row, thus changing context.
+                        if prev_filled_row[i] != current_row_sparse[i]:
+                            context_established_by_current_sparse_row = True
+                    else: # current_row_sparse[i] is 0
+                        # Inherit from prev_filled_row as context hasn't changed at this point.
+                        new_filled_row[i] = prev_filled_row[i]
+        
+        filled_rows.append(new_filled_row)
+        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
+    
+    print("Filled rows:")
+    print(filled_rows[:50])  # Print first 10 for debugging
+
+    numbered_rows = filled_rows
+
+    fids = [
+        ".".join([str(i) for i in l])
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        for l in numbered_rows
+    ]
+
+    # concat 'FEJEZET', 'CIM', 'ALCIM', 'JOGCIM1'
+    df["fid"] = fids
+
+    print("Fids:")
+    print(df["fid"].head(100))  # Print first 10 for debugging
 
     df["fid"] = (
         df["fid"]
@@ -427,7 +528,13 @@ for year in years:
 
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
-    names = df[name_column]
+    names = df[name_column].tolist()
+    names_by_fid = {}
+    for i, row in df.iterrows():
+        fid = row["fid"]
+        name = row[name_column]
+        if fid not in names_by_fid:
+            names_by_fid[fid] = name
 
     # for r in str_rows:
     #     print(r)
@@ -437,12 +544,14 @@ for year in years:
     with open(f"{excel_sheet}_section_structure.json", "r") as f:
         section_structures = list(json.load(f).items())
 
-    # filtered_sections = section_structures[0:]
-    filtered_sections = [s for s in section_structures if s[0].startswith("XX.")]
+    filtered_sections = section_structures[0:]
+    # filtered_sections = [s for s in section_structures if s[0].startswith("XX.")]
 
     for title, section in tqdm(filtered_sections):
         section_number = from_roman_numeral(title.split(" ")[0].strip("."))
         pdf_file = section["file_path"]
+        # print(f"names_by_fid: {names_by_fid}")
+
         try:
             page_count = get_page_lenth(pdf_file)
             if page_count > 100:
@@ -462,13 +571,13 @@ for year in years:
                         split_file,
                         section_number,
                         deduplicated_rows,
-                        names,
+                        names_by_fid,
                         start_from=last_success,
                         part=i,
                     )
             else:
                 extract_text_from_section(
-                    pdf_file, section_number, deduplicated_rows, names
+                    pdf_file, section_number, deduplicated_rows, names_by_fid
                 )
         except Exception as e:
             print(f"Error processing section {section_number}: {e}")

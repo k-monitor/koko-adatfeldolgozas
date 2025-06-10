@@ -1,5 +1,6 @@
+from pandas.core.frame import DataFrame
 import pandas as pd
-import math
+import os
 
 
 def to_numbers(row):
@@ -48,6 +49,46 @@ def get_deduplicated_rows(df):
         )
     ]
 
+    print("Original rows:")
+    print(numbered_rows[:10])  # Print first 10 for debugging
+
+    filled_rows = []
+    prev_filled_row = None
+
+    for current_row_sparse in numbered_rows:
+        new_filled_row = [0] * len(current_row_sparse)
+
+        if prev_filled_row is None:
+            # For the first row, the filled row is just a copy of the sparse row
+            new_filled_row = current_row_sparse.copy()
+        else:
+            # This flag tracks if a non-zero value in current_row_sparse has differed
+            # from prev_filled_row, thereby establishing a new "context".
+            context_established_by_current_sparse_row = False
+            for i in range(len(current_row_sparse)):
+                if context_established_by_current_sparse_row:
+                    # If context has changed, subsequent values are taken directly from current_row_sparse.
+                    # If current_row_sparse[i] is 0, new_filled_row[i] will be 0.
+                    new_filled_row[i] = current_row_sparse[i]
+                else:
+                    # Context not yet changed by a differing non-zero value in current_row_sparse.
+                    if current_row_sparse[i] != 0:
+                        new_filled_row[i] = current_row_sparse[i]
+                        # Check if this non-zero value differs from prev_filled_row, thus changing context.
+                        if prev_filled_row[i] != current_row_sparse[i]:
+                            context_established_by_current_sparse_row = True
+                    else: # current_row_sparse[i] is 0
+                        # Inherit from prev_filled_row as context hasn't changed at this point.
+                        new_filled_row[i] = prev_filled_row[i]
+        
+        filled_rows.append(new_filled_row)
+        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
+    
+    print("Filled rows:")
+    print(filled_rows[:10])  # Print first 10 for debugging
+
+    numbered_rows = filled_rows
+
     deduplicated_rows = []
     for i, row in enumerate(numbered_rows):
         prev_row = numbered_rows[i - 1] if i > 0 else None
@@ -66,6 +107,9 @@ def get_deduplicated_rows(df):
             and prev_row != row
         ):
             deduplicated_rows.append(row)
+
+    print("Deduplicated rows:")
+    print(deduplicated_rows[:10])  # Print first 10 for debugging
 
     str_rows = [
         ".".join([str(i) for i in l])
@@ -114,7 +158,46 @@ years = [
             "accumulated_income": "Felhalmozási bevétel",
         },
     },
+    {
+        "excel_sheet": "2019",
+        "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2020",
+        "pdf_file": "javaslatok/2020 összefűzött javaslat.pdf",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2021",
+        "pdf_file": "javaslatok/2021 összefűzött javaslat.pdf",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
 ]
+
+
+def convert_float(value):
+    value = str(value).replace(",", ".").replace(" ", "")
+    return float(value) if value else 0.0
+
 
 for year in years:
     excel_sheet = year["excel_sheet"]
@@ -125,38 +208,101 @@ for year in years:
     df = df[1:]
     df = df[df["FEJEZET"].notna()]
 
-    df["spending"] = df[year["columns"]["spending"]].astype(float)
-    df["income"] = df[year["columns"]["income"]].astype(float)
+    df["spending"] = df[year["columns"]["spending"]].apply(convert_float).astype(float)
+    df["income"] = df[year["columns"]["income"]].apply(convert_float).astype(float)
     if "support" in year["columns"]:
-        df["support"] = df[year["columns"].get("support")].astype(float)
+        df["support"] = (
+            df[year["columns"].get("support")].apply(convert_float).astype(float)
+        )
     else:
         df["support"] = 0.0
     if "accumulated_spending" in year["columns"]:
-        df["accumulated_spending"] = df[
-            year["columns"].get("accumulated_spending")
-        ].astype(float)
+        df["accumulated_spending"] = (
+            df[year["columns"].get("accumulated_spending")]
+            .apply(convert_float)
+            .astype(float)
+        )
     else:
         df["accumulated_spending"] = 0.0
     if "accumulated_income" in year["columns"]:
-        df["accumulated_income"] = df[year["columns"].get("accumulated_income")].astype(
-            float
+        df["accumulated_income"] = (
+            df[year["columns"].get("accumulated_income")]
+            .apply(convert_float)
+            .astype(float)
         )
     else:
         df["accumulated_income"] = 0.0
-    df["function"] = df["Funkció"]
+    if "Funkció" in df.columns:
+        df["function"] = df["Funkció"]
+    else:
+        df["function"] = None
+    if "ÁHT-T" not in df.columns:
+        df["ÁHT-T"] = None
+
+    print(df.head(10))
+    df["CIM"].fillna(0, inplace=True)
+    df["ALCIM"].fillna(0, inplace=True)
+    df["JOGCIM1"].fillna(0, inplace=True)
+    df["JOGCIM2"].fillna(0, inplace=True)
+
+    numbered_rows = [
+        to_numbers(row)
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
+            index=False, name=None
+        )
+    ]
+
+    print("Original rows:")
+    print(numbered_rows[:10])  # Print first 10 for debugging
+
+    filled_rows = []
+    prev_filled_row = None
+
+    for current_row_sparse in numbered_rows:
+        new_filled_row = [0] * len(current_row_sparse)
+
+        if prev_filled_row is None:
+            # For the first row, the filled row is just a copy of the sparse row
+            new_filled_row = current_row_sparse.copy()
+        else:
+            # This flag tracks if a non-zero value in current_row_sparse has differed
+            # from prev_filled_row, thereby establishing a new "context".
+            context_established_by_current_sparse_row = False
+            for i in range(len(current_row_sparse)):
+                if context_established_by_current_sparse_row:
+                    # If context has changed, subsequent values are taken directly from current_row_sparse.
+                    # If current_row_sparse[i] is 0, new_filled_row[i] will be 0.
+                    new_filled_row[i] = current_row_sparse[i]
+                else:
+                    # Context not yet changed by a differing non-zero value in current_row_sparse.
+                    if current_row_sparse[i] != 0:
+                        new_filled_row[i] = current_row_sparse[i]
+                        # Check if this non-zero value differs from prev_filled_row, thus changing context.
+                        if prev_filled_row[i] != current_row_sparse[i]:
+                            context_established_by_current_sparse_row = True
+                    else: # current_row_sparse[i] is 0
+                        # Inherit from prev_filled_row as context hasn't changed at this point.
+                        new_filled_row[i] = prev_filled_row[i]
+        
+        filled_rows.append(new_filled_row)
+        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
+    
+    print("Filled rows:")
+    print(filled_rows[:10])  # Print first 10 for debugging
+
+    numbered_rows = filled_rows
+
+    fids = [
+        ".".join([str(i) for i in l])
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        for l in numbered_rows
+    ]
 
     # concat 'FEJEZET', 'CIM', 'ALCIM', 'JOGCIM1'
-    df["fid"] = (
-        df["FEJEZET"].astype(int).astype(str)
-        + "."
-        + df["CIM"].astype(int).astype(str)
-        + "."
-        + df["ALCIM"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM1"].astype(int).astype(str)
-        + "."
-        + df["JOGCIM2"].astype(int).astype(str)
-    )
+    df["fid"] = fids
 
     df["fid"] = (
         df["fid"]
@@ -166,6 +312,8 @@ for year in years:
         .replace(r"\.0$", "", regex=True)
         .replace(r"\.0$", "", regex=True)
     )
+
+    print(fids[:10])  # Print first 10 for debugging
 
     functions = get_functions(df)
     functions_null_mask = df["function"].apply(
@@ -250,8 +398,12 @@ for year in years:
 
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
-    df_indoklas = pd.read_csv(f"descriptions_{excel_sheet}.csv", index_col=0)
-    df_merged = pd.merge(df, df_indoklas, on="fid", how="left")
+    if f"descriptions_{excel_sheet}.csv" in os.listdir():
+        df_indoklas = pd.read_csv(f"descriptions_{excel_sheet}.csv", index_col=0)
+        df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
+    else:
+        df_merged = df.copy()
+        df_merged["indoklas"] = None
 
     dataset = df_merged[
         [
