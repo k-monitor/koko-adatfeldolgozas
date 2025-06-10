@@ -1,20 +1,15 @@
 # imports
 from utils.pdf_extractor import extract_text_by_page
 from collections import defaultdict
-from pprint import pprint
 import pandas as pd
 import os
 import PyPDF2  # Add this import for PDF splitting
 import re
 import json
 
-excel_file = "xlsx/Elfogadott költségvetések.xlsx"
+excel_file = "adatok/koltsegvetesek.xlsx"
 
-years = [
-    {"excel_sheet": "2016", "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf"},
-    {"excel_sheet": "2017", "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf"},
-    {"excel_sheet": "2018", "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf"},
-]
+years = ["2016", "2017", "2018"]
 
 
 def find_section_boundaries(text_by_page, sections):
@@ -268,7 +263,7 @@ def process_year(excel_sheet, pdf_file, output_dir="split_pdfs"):
     export_summary = prepare_export_summary(section_summary)
 
     # Save to disk
-    json_file_path = f"{year_prefix}_section_structure.json"
+    json_file_path = f"indoklasok/feldolgozott/{year_prefix}.json"
     with open(json_file_path, "w", encoding="utf-8") as f:
         json.dump(export_summary, f, ensure_ascii=False, indent=2)
 
@@ -278,7 +273,7 @@ def process_year(excel_sheet, pdf_file, output_dir="split_pdfs"):
 # Process all years and collect JSON file paths
 json_files = []
 for year in years:
-    json_file = process_year(year["excel_sheet"], year["pdf_file"])
+    json_file = process_year(year, f"indoklasok/nyers/javaslatok/{year}.pdf")
     json_files.append(json_file)
 
 print(f"Generated JSON files: {json_files}")
