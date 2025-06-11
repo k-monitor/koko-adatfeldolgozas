@@ -7,6 +7,7 @@ import PyPDF2  # Add this import for PDF splitting
 import re
 import json
 import logging
+import traceback
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 excel_file = "adatok/koltsegvetesek.xlsx"
 
-years = ["2016", "2017", "2018"]
+years = [
+    "2016",
+    "2017",
+    "2018",
+    "2019",
+]
 
 
 def find_section_boundaries(text_by_page, sections):
@@ -196,36 +202,24 @@ def prepare_export_summary(section_summary):
     """Prepare a serializable version of the section summary."""
     export_summary = {}
     for section, info in section_summary.items():
-        export_summary[section] = {
-            "title": info["main"]["title"],
-            "start_page": info["main"]["start_page"],
-            "end_page": info["main"]["end_page"],
-            "page_count": info["main"]["page_count"],
-            "file_path": info.get("file_path", ""),
-            "subsections": [
-                {
-                    "title": subsection["title"],
-                    "start_page": subsection["start_page"],
-                    "end_page": subsection["end_page"],
-                    "page_count": subsection["page_count"],
-                }
-                for subsection in info["subsections"]
-            ],
-        }
+        export_summary[section] = {"file_path": info.get("file_path", "")}
     return export_summary
 
 
-def process_year(excel_sheet: str, pdf_file: str, output_dir: str = "split_pdfs") -> str:
+def process_year(
+    excel_sheet: str, pdf_file: str, output_dir: str = "split_pdfs"
+) -> str:
     """Process a single year's data and return the JSON file path."""
     if not os.path.exists(pdf_file):
         raise FileNotFoundError(f"PDF file not found: {pdf_file}")
-        
+
     logger.info(f"Processing year {excel_sheet} with PDF {pdf_file}")
-    
+
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
+    df = df.dropna(subset=["MEGNEVEZÉS"])
     sections = [
         s.split(" ")[0] + " " + " ".join(s.split(" ")[1:]).title()
-        for s in list(df["Unnamed: 19"])[1:]
+        for s in list(df["MEGNEVEZÉS"])[1:]
         if not s.startswith(" ")
     ]
     text_by_page = extract_text_by_page(pdf_path=pdf_file)
@@ -276,13 +270,14 @@ def process_year(excel_sheet: str, pdf_file: str, output_dir: str = "split_pdfs"
     # Save to disk with proper error handling
     os.makedirs(f"indoklasok/feldolgozott/{year_prefix}", exist_ok=True)
     json_file_path = f"indoklasok/feldolgozott/{year_prefix}/summary.json"
-    
+
     try:
         with open(json_file_path, "w", encoding="utf-8") as f:
             json.dump(export_summary, f, ensure_ascii=False, indent=2)
         logger.info(f"Saved processed data to {json_file_path}")
     except Exception as e:
         logger.error(f"Error saving JSON file {json_file_path}: {e}")
+        traceback.print_exc()
         raise
 
     return json_file_path
@@ -294,10 +289,15 @@ def main():
     json_files = []
     for year in years:
         try:
-            json_file = process_year(year, f"indoklasok/nyers/javaslatok/{year}.pdf", output_dir=f'indoklasok/feldolgozott/{year}')
+            json_file = process_year(
+                year,
+                f"indoklasok/nyers/javaslatok/{year}.pdf",
+                output_dir=f"indoklasok/feldolgozott/{year}",
+            )
             json_files.append(json_file)
         except Exception as e:
             logger.error(f"Failed to process year {year}: {e}")
+            traceback.print_exc()
             continue
 
     logger.info(f"Generated JSON files: {json_files}")
