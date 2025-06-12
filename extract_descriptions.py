@@ -17,40 +17,11 @@ from utils.pdf_extractor import get_page_lenth
 
 load_dotenv(dotenv_path=".env")
 
-excel_file = "xlsx/Elfogadott költségvetések.xlsx"
+excel_file = "adatok/koltsegvetesek.xlsx"
+processed_dir = "indoklasok/feldolgozott"
+model_name = "gemini-2.5-flash-preview-05-20"
 
-years = [
-    # {
-    #     "excel_sheet": "2016",
-    #     "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
-    #     "name_column": "NEV",
-    # },
-    # {
-    #     "excel_sheet": "2017",
-    #     "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
-    #     "name_column": "MEGNEVEZÉS",
-    # },
-    # {
-    #     "excel_sheet": "2018",
-    #     "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
-    #     "name_column": "MEGNEVEZÉS",
-    # },
-    # {
-    #     "excel_sheet": "2019",
-    #     "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
-    #     "name_column": "MEGNEVEZÉS",
-    # },
-    # {
-    #     "excel_sheet": "2020",
-    #     "pdf_file": "javaslatok/2020 összefűzött javaslat.pdf",
-    #     "name_column": "MEGNEVEZÉS",
-    # },
-    {
-        "excel_sheet": "2021",
-        "pdf_file": "javaslatok/2021 összefűzött javaslat.pdf",
-        "name_column": "MEGNEVEZÉS",
-    },
-]
+years = ["2016", "2017", "2018", "2019", "2020", "2021"]
 
 
 def generate(prompt, file_path, temp):
@@ -61,7 +32,6 @@ def generate(prompt, file_path, temp):
     files = [
         client.files.upload(file=file_path),
     ]
-    model = "gemini-2.5-flash-preview-05-20"
     contents = [
         types.Content(
             role="user",
@@ -104,7 +74,7 @@ def generate(prompt, file_path, temp):
     )
 
     response = client.models.generate_content(
-        model=model,
+        model=model_name,
         contents=contents,
         config=generate_content_config,
     )
@@ -177,11 +147,9 @@ def init_row(row):
             r[i] = v
     return r
 
+
 def get_deduplicated_rows(df):
-    numbered_rows = [
-        init_row(row)
-        for row in df["fid"]
-    ]
+    numbered_rows = [init_row(row) for row in df["fid"]]
     deduplicated_rows = []
     for i, row in enumerate(numbered_rows):
         prev_row = numbered_rows[i - 1] if i > 0 else None
@@ -308,6 +276,7 @@ def to_numbers(row):
     Convert a row of strings to numbers.
     """
     return [int(x) if str(x).isdigit() else x for x in row]
+
 
 def extract_text_from_section(
     pdf_file, section, str_rows, names_by_fid, start_from=0, part=None
@@ -436,18 +405,16 @@ def split_pdf_by_pages(pdf_path, output_dir, name_prefix, splits):
 
 
 for year in years:
-    name_column = year["name_column"]
-    excel_sheet = year["excel_sheet"]
-    pdf_file = year["pdf_file"]
+    name_column = "MEGNEVEZÉS"
+    excel_sheet = year
+    pdf_file = f"indoklasok/feldolgozott/{year}.pdf"
 
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
-    df.columns = df.iloc[0]
     df = df[1:]
     df["ALCIM"].fillna(0, inplace=True)
     df["JOGCIM1"].fillna(0, inplace=True)
     df["JOGCIM2"].fillna(0, inplace=True)
     df = df[df["FEJEZET"].notna()]
-
 
     print(df.head(10))
     df["CIM"].fillna(0, inplace=True)
@@ -490,13 +457,15 @@ for year in years:
                         # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
                             context_established_by_current_sparse_row = True
-                    else: # current_row_sparse[i] is 0
+                    else:  # current_row_sparse[i] is 0
                         # Inherit from prev_filled_row as context hasn't changed at this point.
                         new_filled_row[i] = prev_filled_row[i]
-        
+
         filled_rows.append(new_filled_row)
-        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
-    
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
     print("Filled rows:")
     print(filled_rows[:50])  # Print first 10 for debugging
 
@@ -541,7 +510,7 @@ for year in years:
 
     # print(len(str_rows), len(set(str_rows)))
 
-    with open(f"{excel_sheet}_section_structure.json", "r") as f:
+    with open(f"indoklasok/feldolgozott/{excel_sheet}/summary.json", "r") as f:
         section_structures = list(json.load(f).items())
 
     filtered_sections = section_structures[0:]
