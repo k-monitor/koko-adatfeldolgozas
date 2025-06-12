@@ -1,37 +1,39 @@
-# imports
-from utils.pdf_extractor import extract_text_by_page
-from collections import defaultdict
-from pprint import pprint
 import pandas as pd
 import os
-import PyPDF2  # Add this import for PDF splitting
-import re
-import base64
+import PyPDF2
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 import json
 from tqdm import tqdm
 import traceback
+import logging
+from typing import List, Dict, Tuple, Optional, Any
 from utils.pdf_extractor import get_page_lenth
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv(dotenv_path=".env")
 
-excel_file = "adatok/koltsegvetesek.xlsx"
-processed_dir = "indoklasok/feldolgozott"
-model_name = "gemini-2.5-flash-preview-05-20"
+# Configuration constants
+EXCEL_FILE = "adatok/koltsegvetesek.xlsx"
+PROCESSED_DIR = "indoklasok/feldolgozott"
+EXTRACTED_DIR = "indoklasok/szovegek"
+MODEL_NAME = "gemini-2.5-flash-preview-05-20"
+YEARS = ["2016", "2017", "2018", "2019", "2020", "2021"]
+MAX_PAGES_PER_SPLIT = 100
+MIN_TEXT_LENGTH = 80
+SUCCESS_THRESHOLD = 0.8
+MAX_RETRIES = 4
 
-years = ["2016", "2017", "2018", "2019", "2020", "2021"]
 
+def generate(prompt: str, file_path: str, temp: float) -> Any:
+    """Generate content using Gemini API."""
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-def generate(prompt, file_path, temp):
-    client = genai.Client(
-        api_key=os.environ.get("GEMINI_API_KEY"),
-    )
-
-    files = [
-        client.files.upload(file=file_path),
-    ]
+    files = [client.files.upload(file=file_path)]
     contents = [
         types.Content(
             role="user",
@@ -44,11 +46,10 @@ def generate(prompt, file_path, temp):
             ],
         ),
     ]
+    
     generate_content_config = types.GenerateContentConfig(
         temperature=temp,
-        thinking_config=types.ThinkingConfig(
-            thinking_budget=1024,
-        ),
+        thinking_config=types.ThinkingConfig(thinking_budget=1024),
         response_mime_type="application/json",
         response_schema=genai.types.Schema(
             type=genai.types.Type.OBJECT,
@@ -60,12 +61,8 @@ def generate(prompt, file_path, temp):
                         type=genai.types.Type.OBJECT,
                         required=["id", "text"],
                         properties={
-                            "id": genai.types.Schema(
-                                type=genai.types.Type.STRING,
-                            ),
-                            "text": genai.types.Schema(
-                                type=genai.types.Type.STRING,
-                            ),
+                            "id": genai.types.Schema(type=genai.types.Type.STRING),
+                            "text": genai.types.Schema(type=genai.types.Type.STRING),
                         },
                     ),
                 ),
@@ -74,144 +71,88 @@ def generate(prompt, file_path, temp):
     )
 
     response = client.models.generate_content(
-        model=model_name,
+        model=MODEL_NAME,
         contents=contents,
         config=generate_content_config,
     )
-
     return response
 
 
-def to_roman_numeral(num):
+def to_roman_numeral(num: int) -> str:
+    """Convert an integer to Roman numeral."""
     lookup = [
-        (1000, "M"),
-        (900, "CM"),
-        (500, "D"),
-        (400, "CD"),
-        (100, "C"),
-        (90, "XC"),
-        (50, "L"),
-        (40, "XL"),
-        (10, "X"),
-        (9, "IX"),
-        (5, "V"),
-        (4, "IV"),
-        (1, "I"),
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
     ]
-    res = ""
-    for n, roman in lookup:
-        (d, num) = divmod(num, n)
-        res += roman * d
-    return res
+    result = ""
+    for value, numeral in lookup:
+        count, num = divmod(num, value)
+        result += numeral * count
+    return result
 
 
-def from_roman_numeral(roman):
+def from_roman_numeral(roman: str) -> int:
     """Convert a Roman numeral to an integer."""
     roman_dict = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-
     result = 0
     for i in range(len(roman)):
-        # If current value is less than next value, subtract it
         if i < len(roman) - 1 and roman_dict[roman[i]] < roman_dict[roman[i + 1]]:
             result -= roman_dict[roman[i]]
         else:
             result += roman_dict[roman[i]]
-
     return result
 
 
-def to_numbers(row):
-    """
-    Convert a row of strings to numbers.
-    """
+def to_numbers(row: List[Any]) -> List[Any]:
+    """Convert a row of strings to numbers where possible."""
     return [int(x) if str(x).isdigit() else x for x in row]
 
 
-def left_overlap(a, b):
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            return i
-        return len(a)
-
-
-def positive_length(a):
-    return len([x for x in a if isinstance(x, int) and x > 0])
-
-
-def init_row(row):
-    r = [0] * 5
-    for i, v in enumerate(row.split(".")):
-        if v.isdigit():
-            r[i] = int(v)
+def init_row(row_str: str) -> List[Any]:
+    """Initialize a row from string format."""
+    result = [0] * 5
+    for i, value in enumerate(row_str.split(".")):
+        if value.isdigit():
+            result[i] = int(value)
         else:
-            r[i] = v
-    return r
+            result[i] = value
+    return result
 
 
-def get_deduplicated_rows(df):
+def positive_length(row: List[Any]) -> int:
+    """Count positive integers in a row."""
+    return len([x for x in row if isinstance(x, int) and x > 0])
+
+
+def get_deduplicated_rows(df: pd.DataFrame) -> List[str]:
+    """Get deduplicated rows from DataFrame."""
     numbered_rows = [init_row(row) for row in df["fid"]]
     deduplicated_rows = []
+    
     for i, row in enumerate(numbered_rows):
         prev_row = numbered_rows[i - 1] if i > 0 else None
         next_row = numbered_rows[i + 1] if i < len(numbered_rows) - 1 else None
-        if (
-            next_row
-            and positive_length(next_row) == positive_length(row)
-            and prev_row
-            and prev_row != row
-        ):
+        
+        if (next_row and positive_length(next_row) == positive_length(row) and 
+            prev_row and prev_row != row):
             deduplicated_rows.append(row)
-        if (
-            next_row
-            and positive_length(next_row) < positive_length(row)
-            and prev_row
-            and prev_row != row
-        ):
+        if (next_row and positive_length(next_row) < positive_length(row) and 
+            prev_row and prev_row != row):
             deduplicated_rows.append(row)
 
     str_rows = [
-        ".".join([str(i) for i in l])
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        for l in deduplicated_rows
+        ".".join([str(i) for i in row])
+        .replace(".0", "").replace(".0", "").replace(".0", "").replace(".0", "")
+        for row in deduplicated_rows
     ]
-
     return str_rows
 
 
-def get_prompt_v1(section, filtered_rows, is_part):
-    return f"""
-Hierarchikusan strukturált költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned.
-
-Most minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
-
-A fejezet a legmagasabb hierarchikus szint (római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
-
-Formátum:
-Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím").
-
-Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az egyéb magyarázó szövegeket, amik nem címhez tartoznak ne vedd bele.
-
-Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
-
-Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez. Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
-
-Az id formátuma: fejezet.cím(.alcím.jocímek)
-Pl.: VI.1.2.3
-
-Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
-
-Lehet, hogy a dokumentum nem tartalmazza a kért részeket{', hanem csak az elejét' if is_part else ''}. Ha egy adott részre nincs egyértelmű utalás a dokumentumban, akkor azt hagyd ki a kimeneti listából. Üres lista is egy valid válasz.
-
-Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
-
-Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket: {", ".join(filtered_rows)}
-"""
-
-
-def get_prompt(section, filtered_rows, names, is_part):
+def get_prompt(section: str, filtered_rows: List[str], names: List[str], is_part: bool) -> str:
+    """Generate prompt for text extraction."""
+    part_text = "Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét." if is_part else "Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez."
+    
     return f"""
 Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
 
@@ -225,37 +166,7 @@ Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az 
 
 Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
 
-{'Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét.' if is_part else 'Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez.'} Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
-
-Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
-Pl.: VI.1.2.3
-
-Nyerd ki strukturált módon a csatolt dokumentumból a benne szereplő teljes indoklás szövegeket tiszta markdown formátumban, szó szerint, a táblázatok nélkül!
-
-Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csatolt dokumentumban szerepel.
-
-Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
-
-Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
-{"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
-"""
-
-
-def get_prompt_textgen(section, filtered_rows, names, is_part):
-    return f"""
-Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
-
-Általában minden szükséges információt a csatolt dokumentum "III."-mal jelzett részében találsz.
-
-A fejezet a legmagasabb hierarchikus szint (gyakran római számmal jelölve), alatta található a cím (arab számmal), az alatt az alcím és végül a jogcímek.
-
-Ezeket a részeket néha "/" jellel választják el (pl.: "(4/2/1)"), máskor szövegesen van jelölve, (pl.: "1. cím Bíróságok" vagy "3. cím 1. alcím"). De az is előfordul, hogy az azonosító számok nem szerepelnek, csak a nevek. Ezeket a neveket is figyelembe kell venni.
-
-Amikor ilyen egyértelmű utalás van alcímekre, bontsd fel a szöveget, de az egyéb magyarázó szövegeket, amik nem címhez tartoznak ne vedd bele.
-
-Csak a konkrét címekkel foglalkozz, a többi bevezető szöveget hagyd figyelmen kívül. Például egy olyan részt, hogy "III.1" még önmagában nem feltétlen kell bevenni.
-
-{'Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét.' if is_part else 'Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez.'} Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
+{part_text} Az indoklás szövege egy hosszabb, legalább 1-2 bekezdéses leírás.
 
 Az id formátuma: fejezet.cím(.alcím.jogcím1.jogcím2)
 Pl.: VI.1.2.3
@@ -267,22 +178,51 @@ Minden egyes azonosítóhoz kell, hogy legyen egy indoklás szöveg, ami a csato
 Az indoklás szövegeket szó szerint csak úgy vedd át, ahogy a csatolt dokumentumban szerepelnek.
 
 Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a következő részeket (azonosítók és nevek listája):
-{"\n".join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
+{chr(10).join([f" - {r} ({n.strip()})" for r, n in zip(filtered_rows, names)])}
 """
 
 
-def to_numbers(row):
-    """
-    Convert a row of strings to numbers.
-    """
-    return [int(x) if str(x).isdigit() else x for x in row]
+def split_pdf_by_pages(pdf_path: str, output_dir: str, name_prefix: str, splits: int) -> List[str]:
+    """Split the PDF file into sections based on page ranges."""
+    os.makedirs(output_dir, exist_ok=True)
+    split_files = []
+
+    with open(pdf_path, "rb") as file:
+        pdf = PyPDF2.PdfReader(file)
+        total_pages = len(pdf.pages)
+        pages_per_split = total_pages // splits
+
+        for i in range(splits):
+            output_pdf = PyPDF2.PdfWriter()
+            start_page = i * pages_per_split
+            end_page = (i + 1) * pages_per_split if i < splits - 1 else total_pages
+
+            for page_num in range(start_page, end_page):
+                output_pdf.add_page(pdf.pages[page_num])
+
+            output_file = os.path.join(output_dir, f"{name_prefix}_{i+1}.pdf")
+            with open(output_file, "wb") as out_file:
+                output_pdf.write(out_file)
+
+            split_files.append(output_file)
+            logger.info(f"Created split PDF: {output_file} (pages {start_page+1}-{end_page})")
+
+    return split_files
 
 
 def extract_text_from_section(
-    pdf_file, section, str_rows, names_by_fid, start_from=0, part=None
-):
+    pdf_file: str, 
+    section: int, 
+    str_rows: list[str], 
+    names_by_fid: dict[str, str], 
+    excel_sheet: str,
+    start_from: int = 0, 
+    part: int | None = None
+) -> int:
+    """Extract text from a specific section of the PDF."""
     is_part = part is not None
     roman_section = to_roman_numeral(section)
+    
     filtered_rows = [
         f"{roman_section}.{'.'.join(row.split('.')[1:])}"
         for row in str_rows
@@ -292,145 +232,72 @@ def extract_text_from_section(
     names = [names_by_fid[r] for r in fids]
 
     filtered_rows = filtered_rows[start_from:]
-    print(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
     names = names[start_from:]
+    
+    logger.info(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
 
+    # Try different prompts and temperatures
     success = []
-    for i in range(4):
-        if i < 2:
-            prompt = get_prompt(roman_section, filtered_rows, names, is_part)
-        elif i == 2:
-            prompt = get_prompt_v1(roman_section, filtered_rows, is_part)
-        elif i == 3:
-            prompt = get_prompt_textgen(roman_section, filtered_rows, names, is_part)
-        if roman_section == "XI":
-            prompt = get_prompt_v1(roman_section, filtered_rows, is_part)
-        temp = 0
-        if i == 1:
-            temp = 0.5
-        # print("prompt")
-        # print("---")
-        # print(prompt)
-        # print("---")
+    for attempt in range(MAX_RETRIES):
+        temp = 0.5 if attempt == 1 else 0
+        prompt = get_prompt(roman_section, filtered_rows, names, is_part)
+        
+        try:
+            generated = generate(prompt, pdf_file, temp)
+            data = generated.parsed
 
-        generated = generate(prompt, pdf_file, temp)
-        data = generated.parsed
-
-        if data and "texts" in data and len(data["texts"]) > 0:
-            try:
+            if data and "texts" in data and len(data["texts"]) > 0:
                 success = [
-                    1 if len(t["text"].strip()) > 80 else 0 for t in data["texts"]
+                    1 if len(t["text"].strip()) > MIN_TEXT_LENGTH else 0 
+                    for t in data["texts"]
                 ]
-                print(f"Generated success: {success}")
-                if sum(success) / len(success) > 0.8 or is_part:
+                logger.info(f"Generated success: {success}")
+                
+                if sum(success) / len(success) > SUCCESS_THRESHOLD or is_part:
                     break
-            except Exception as e:
-                print(f"Error processing section {section}: {e}")
+            else:
+                logger.warning(f"No texts found in response for section {roman_section}. Retrying...")
                 continue
-        else:
-            print(roman_section)
-            print("No texts found in the response. Retrying...")
+                
+        except Exception as e:
+            logger.error(f"Error processing section {section}, attempt {attempt}: {e}")
             continue
 
-    if success:
-        last_success = -1
-        for i, s in enumerate(success):
-            if s == 1:
-                last_success = i
-    print(f"Last success: {last_success}")
+    if not success:
+        logger.error(f"Failed to extract text from section {section}")
+        return 0
 
-    # print(data)
-    # print(data["texts"])
+    last_success = max([i for i, s in enumerate(success) if s == 1], default=-1)
+    logger.info(f"Last success: {last_success}")
 
+    # Process and save results
     for text in data["texts"]:
         text["id"] = text["id"].replace(roman_section, str(section))
-        # print(text["id"])
-        # print(text["indoklás szöveg"])
-        # print("\n\n")
 
-    # Create directory for extracted descriptions if it doesn't exist
-    extracted_dir = "extracted_descriptions"
-    os.makedirs(extracted_dir, exist_ok=True)
+    os.makedirs(EXTRACTED_DIR, exist_ok=True)
+    part_suffix = f"_{part+1}" if part is not None else ""
+    csv_filename = f"{EXTRACTED_DIR}/{excel_sheet}_section_{section}{part_suffix}.csv"
 
-    # Create a filename based on year and section
-    if part is not None:
-        part = f"_{part+1}"
-    else:
-        part = ""
-    csv_filename = f"{extracted_dir}/{excel_sheet}_section_{section}{part}.csv"
-
-    # Convert data to DataFrame and save as CSV
     descriptions_df = pd.DataFrame(data["texts"])
     descriptions_df.to_csv(csv_filename, index=False, encoding="utf-8")
-
-    print(f"Saved extracted descriptions to {csv_filename}")
+    logger.info(f"Saved extracted descriptions to {csv_filename}")
 
     return last_success
 
 
-def split_pdf_by_pages(pdf_path, output_dir, name_prefix, splits):
-    """Split the PDF file into sections based on page ranges."""
-    os.makedirs(output_dir, exist_ok=True)
-
-    with open(pdf_path, "rb") as file:
-        pdf = PyPDF2.PdfReader(file)
-        total_pages = len(pdf.pages)
-
-        # Calculate base pages per split
-        pages_per_split = total_pages // splits
-
-        # Create list to store created file paths
-        split_files = []
-
-        for i in range(splits):
-            output_pdf = PyPDF2.PdfWriter()
-
-            # Calculate start and end page for this split
-            start_page = i * pages_per_split
-            end_page = (i + 1) * pages_per_split if i < splits - 1 else total_pages
-
-            # Add pages to the new PDF
-            for page_num in range(start_page, end_page):
-                output_pdf.add_page(pdf.pages[page_num])
-
-            # Save the split PDF
-            output_file = os.path.join(output_dir, f"{name_prefix}_{i+1}.pdf")
-            with open(output_file, "wb") as out_file:
-                output_pdf.write(out_file)
-
-            split_files.append(output_file)
-            print(f"Created split PDF: {output_file} (pages {start_page+1}-{end_page})")
-
-        return split_files
-
-
-for year in years:
-    name_column = "MEGNEVEZÉS"
-    excel_sheet = year
-    pdf_file = f"indoklasok/feldolgozott/{year}.pdf"
-
-    df = pd.read_excel(excel_file, sheet_name=excel_sheet)
-    df = df[1:]
-    df["ALCIM"].fillna(0, inplace=True)
-    df["JOGCIM1"].fillna(0, inplace=True)
-    df["JOGCIM2"].fillna(0, inplace=True)
+def process_dataframe(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str]]:
+    """Process DataFrame to create FIDs and name mappings."""
+    # Fill NaN values
+    for col in ["CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]:
+        df[col].fillna(0, inplace=True)
+    
     df = df[df["FEJEZET"].notna()]
 
-    print(df.head(10))
-    df["CIM"].fillna(0, inplace=True)
-    df["ALCIM"].fillna(0, inplace=True)
-    df["JOGCIM1"].fillna(0, inplace=True)
-    df["JOGCIM2"].fillna(0, inplace=True)
-
+    # Convert to numbered rows and fill missing values
     numbered_rows = [
-        to_numbers(row)
-        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
-            index=False, name=None
-        )
+        to_numbers(row) for row in 
+        df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(index=False, name=None)
     ]
-
-    print("Original rows:")
-    print(numbered_rows[:50])  # Print first 10 for debugging
 
     filled_rows = []
     prev_filled_row = None
@@ -439,117 +306,106 @@ for year in years:
         new_filled_row = [0] * len(current_row_sparse)
 
         if prev_filled_row is None:
-            # For the first row, the filled row is just a copy of the sparse row
             new_filled_row = current_row_sparse.copy()
         else:
-            # This flag tracks if a non-zero value in current_row_sparse has differed
-            # from prev_filled_row, thereby establishing a new "context".
-            context_established_by_current_sparse_row = False
+            context_established = False
             for i in range(len(current_row_sparse)):
-                if context_established_by_current_sparse_row:
-                    # If context has changed, subsequent values are taken directly from current_row_sparse.
-                    # If current_row_sparse[i] is 0, new_filled_row[i] will be 0.
+                if context_established:
                     new_filled_row[i] = current_row_sparse[i]
                 else:
-                    # Context not yet changed by a differing non-zero value in current_row_sparse.
                     if current_row_sparse[i] != 0:
                         new_filled_row[i] = current_row_sparse[i]
-                        # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
-                            context_established_by_current_sparse_row = True
-                    else:  # current_row_sparse[i] is 0
-                        # Inherit from prev_filled_row as context hasn't changed at this point.
+                            context_established = True
+                    else:
                         new_filled_row[i] = prev_filled_row[i]
 
         filled_rows.append(new_filled_row)
-        prev_filled_row = (
-            new_filled_row  # Update prev_filled_row for the next iteration
-        )
+        prev_filled_row = new_filled_row
 
-    print("Filled rows:")
-    print(filled_rows[:50])  # Print first 10 for debugging
-
-    numbered_rows = filled_rows
-
+    # Create FIDs
     fids = [
-        ".".join([str(i) for i in l])
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        for l in numbered_rows
+        ".".join([str(i) for i in row])
+        .replace(".0", "").replace(".0", "").replace(".0", "").replace(".0", "")
+        for row in filled_rows
     ]
-
-    # concat 'FEJEZET', 'CIM', 'ALCIM', 'JOGCIM1'
     df["fid"] = fids
 
-    print("Fids:")
-    print(df["fid"].head(100))  # Print first 10 for debugging
+    # Clean up FIDs
+    df["fid"] = df["fid"].str.replace(r"\.0$", "", regex=True)
 
-    df["fid"] = (
-        df["fid"]
-        .str.replace(r"\.0$", "", regex=True)
-        .replace(r"\.0$", "", regex=True)
-        .replace(r"\.0$", "", regex=True)
-        .replace(r"\.0$", "", regex=True)
-        .replace(r"\.0$", "", regex=True)
-    )
-
+    # Get deduplicated rows and create name mapping
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
-    names = df[name_column].tolist()
+    
     names_by_fid = {}
-    for i, row in df.iterrows():
+    for _, row in df.iterrows():
         fid = row["fid"]
-        name = row[name_column]
+        name = row["MEGNEVEZÉS"]
         if fid not in names_by_fid:
             names_by_fid[fid] = name
 
-    # for r in str_rows:
-    #     print(r)
+    return deduplicated_rows, names_by_fid
 
-    # print(len(str_rows), len(set(str_rows)))
 
-    with open(f"indoklasok/feldolgozott/{excel_sheet}/summary.json", "r") as f:
-        section_structures = list(json.load(f).items())
+def process_year(year: str) -> None:
+    """Process a single year's data."""
+    logger.info(f"Processing year: {year}")
+    
+    excel_sheet = year
+    pdf_file = f"{PROCESSED_DIR}/{year}.pdf"
 
-    filtered_sections = section_structures[0:]
-    # filtered_sections = [s for s in section_structures if s[0].startswith("XX.")]
+    try:
+        df = pd.read_excel(EXCEL_FILE, sheet_name=excel_sheet)
+        df = df[1:]  # Skip first row
+        
+        deduplicated_rows, names_by_fid = process_dataframe(df)
 
-    for title, section in tqdm(filtered_sections):
-        section_number = from_roman_numeral(title.split(" ")[0].strip("."))
-        pdf_file = section["file_path"]
-        # print(f"names_by_fid: {names_by_fid}")
+        with open(f"{PROCESSED_DIR}/{excel_sheet}/summary.json", "r") as f:
+            section_structures = list(json.load(f).items())
 
-        try:
-            page_count = get_page_lenth(pdf_file)
-            if page_count > 100:
-                # Split the PDF into 100 page chunks to page count
-                splits = page_count // 100 + 1
-                split_files = split_pdf_by_pages(
-                    pdf_file,
-                    "split",
-                    f"{excel_sheet}_{section_number}",
-                    splits,
-                )
-                print(f"Split PDF into {len(split_files)} parts.")
-                last_success = 0
-                for i, split_file in enumerate(split_files):
-                    print(f"Processing split file: {split_file}")
-                    last_success += extract_text_from_section(
-                        split_file,
-                        section_number,
-                        deduplicated_rows,
-                        names_by_fid,
-                        start_from=last_success,
-                        part=i,
+        for title, section in tqdm(section_structures):
+            section_number = from_roman_numeral(title.split(" ")[0].strip("."))
+            section_pdf_file = section["file_path"]
+
+            try:
+                page_count = get_page_lenth(section_pdf_file)
+                
+                if page_count > MAX_PAGES_PER_SPLIT:
+                    splits = page_count // MAX_PAGES_PER_SPLIT + 1
+                    split_files = split_pdf_by_pages(
+                        section_pdf_file, "split", f"{excel_sheet}_{section_number}", splits
                     )
-            else:
-                extract_text_from_section(
-                    pdf_file, section_number, deduplicated_rows, names_by_fid
-                )
-        except Exception as e:
-            print(f"Error processing section {section_number}: {e}")
-            stack_trace = traceback.format_exc()
-            print(stack_trace)
-            continue
+                    logger.info(f"Split PDF into {len(split_files)} parts.")
+                    
+                    last_success = 0
+                    for i, split_file in enumerate(split_files):
+                        logger.info(f"Processing split file: {split_file}")
+                        last_success += extract_text_from_section(
+                            split_file, section_number, deduplicated_rows, 
+                            names_by_fid, excel_sheet, start_from=last_success, part=i
+                        )
+                else:
+                    extract_text_from_section(
+                        section_pdf_file, section_number, deduplicated_rows, 
+                        names_by_fid, excel_sheet
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Error processing section {section_number}: {e}")
+                logger.error(traceback.format_exc())
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error processing year {year}: {e}")
+        logger.error(traceback.format_exc())
+
+
+def main() -> None:
+    """Main function to process all years."""
+    for year in YEARS:
+        process_year(year)
+
+
+if __name__ == "__main__":
+    main()
