@@ -8,21 +8,39 @@ import json
 from tqdm import tqdm
 import traceback
 import logging
-from typing import List, Dict, Tuple, Optional, Any
+from typing import Tuple, Any
 from utils.pdf_extractor import get_page_lenth
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-load_dotenv(dotenv_path=".env")
+# Silence pdfminer warnings
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
+load_dotenv(override=True)
+
+api_key = os.environ.get("GEMINI_API_KEY")
+
+if not api_key:
+    logger.error("GEMINI_API_KEY environment variable is not set.")
+    raise ValueError("GEMINI_API_KEY environment variable is required.")
+
+logger.info(f"using api key: ***{api_key[-5:]}")
 
 # Configuration constants
 EXCEL_FILE = "adatok/koltsegvetesek.xlsx"
 PROCESSED_DIR = "indoklasok/feldolgozott"
 EXTRACTED_DIR = "indoklasok/szovegek"
 MODEL_NAME = "gemini-2.5-flash-preview-05-20"
-YEARS = ["2016", "2017", "2018", "2019", "2020", "2021"]
+YEARS = [
+    # "2016",
+    # "2017",
+    "2018",
+    # "2019",
+    # "2020",
+    # "2021",
+]
 MAX_PAGES_PER_SPLIT = 100
 MIN_TEXT_LENGTH = 80
 SUCCESS_THRESHOLD = 0.8
@@ -46,7 +64,7 @@ def generate(prompt: str, file_path: str, temp: float) -> Any:
             ],
         ),
     ]
-    
+
     generate_content_config = types.GenerateContentConfig(
         temperature=temp,
         thinking_config=types.ThinkingConfig(thinking_budget=1024),
@@ -81,9 +99,19 @@ def generate(prompt: str, file_path: str, temp: float) -> Any:
 def to_roman_numeral(num: int) -> str:
     """Convert an integer to Roman numeral."""
     lookup = [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     ]
     result = ""
     for value, numeral in lookup:
@@ -104,12 +132,12 @@ def from_roman_numeral(roman: str) -> int:
     return result
 
 
-def to_numbers(row: List[Any]) -> List[Any]:
+def to_numbers(row: list[Any]) -> list[Any]:
     """Convert a row of strings to numbers where possible."""
     return [int(x) if str(x).isdigit() else x for x in row]
 
 
-def init_row(row_str: str) -> List[Any]:
+def init_row(row_str: str) -> list[Any]:
     """Initialize a row from string format."""
     result = [0] * 5
     for i, value in enumerate(row_str.split(".")):
@@ -120,39 +148,56 @@ def init_row(row_str: str) -> List[Any]:
     return result
 
 
-def positive_length(row: List[Any]) -> int:
+def positive_length(row: list[Any]) -> int:
     """Count positive integers in a row."""
     return len([x for x in row if isinstance(x, int) and x > 0])
 
 
-def get_deduplicated_rows(df: pd.DataFrame) -> List[str]:
+def get_deduplicated_rows(df: pd.DataFrame) -> list[str]:
     """Get deduplicated rows from DataFrame."""
     numbered_rows = [init_row(row) for row in df["fid"]]
     deduplicated_rows = []
-    
+
     for i, row in enumerate(numbered_rows):
         prev_row = numbered_rows[i - 1] if i > 0 else None
         next_row = numbered_rows[i + 1] if i < len(numbered_rows) - 1 else None
-        
-        if (next_row and positive_length(next_row) == positive_length(row) and 
-            prev_row and prev_row != row):
+
+        if (
+            next_row
+            and positive_length(next_row) == positive_length(row)
+            and prev_row
+            and prev_row != row
+        ):
             deduplicated_rows.append(row)
-        if (next_row and positive_length(next_row) < positive_length(row) and 
-            prev_row and prev_row != row):
+        if (
+            next_row
+            and positive_length(next_row) < positive_length(row)
+            and prev_row
+            and prev_row != row
+        ):
             deduplicated_rows.append(row)
 
     str_rows = [
         ".".join([str(i) for i in row])
-        .replace(".0", "").replace(".0", "").replace(".0", "").replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
         for row in deduplicated_rows
     ]
     return str_rows
 
 
-def get_prompt(section: str, filtered_rows: List[str], names: List[str], is_part: bool) -> str:
+def get_prompt(
+    section: str, filtered_rows: list[str], names: list[str], is_part: bool
+) -> str:
     """Generate prompt for text extraction."""
-    part_text = "Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét." if is_part else "Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez."
-    
+    part_text = (
+        "Lehet, hogy a dokumentum nem tartalmazza a kért részeket, hanem csak az elejét."
+        if is_part
+        else "Az összes leírás egyben legyen meg egy adott fejezet/cím(/alcím/jogcímek) tételhez."
+    )
+
     return f"""
 Hierarchikusan strukturált, költségvetéssel kapcsolatos indoklás szövegeket kell kinyerned azonosítók és nevek alapján.
 
@@ -182,7 +227,9 @@ Most csak a {section}. fejezet dokumentumát csatoltam. Ebből nyerd ki a követ
 """
 
 
-def split_pdf_by_pages(pdf_path: str, output_dir: str, name_prefix: str, splits: int) -> List[str]:
+def split_pdf_by_pages(
+    pdf_path: str, output_dir: str, name_prefix: str, splits: int
+) -> list[str]:
     """Split the PDF file into sections based on page ranges."""
     os.makedirs(output_dir, exist_ok=True)
     split_files = []
@@ -205,24 +252,26 @@ def split_pdf_by_pages(pdf_path: str, output_dir: str, name_prefix: str, splits:
                 output_pdf.write(out_file)
 
             split_files.append(output_file)
-            logger.info(f"Created split PDF: {output_file} (pages {start_page+1}-{end_page})")
+            logger.info(
+                f"Created split PDF: {output_file} (pages {start_page+1}-{end_page})"
+            )
 
     return split_files
 
 
 def extract_text_from_section(
-    pdf_file: str, 
-    section: int, 
-    str_rows: list[str], 
-    names_by_fid: dict[str, str], 
+    pdf_file: str,
+    section: int,
+    str_rows: list[str],
+    names_by_fid: dict[str, str],
     excel_sheet: str,
-    start_from: int = 0, 
-    part: int | None = None
-) -> int:
+    start_from: int = 0,
+    part: int | None = None,
+) -> Tuple[int, list[dict[str, str]]]:
     """Extract text from a specific section of the PDF."""
     is_part = part is not None
     roman_section = to_roman_numeral(section)
-    
+
     filtered_rows = [
         f"{roman_section}.{'.'.join(row.split('.')[1:])}"
         for row in str_rows
@@ -233,70 +282,69 @@ def extract_text_from_section(
 
     filtered_rows = filtered_rows[start_from:]
     names = names[start_from:]
-    
+
     logger.info(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
 
     # Try different prompts and temperatures
     success = []
+    data = None
     for attempt in range(MAX_RETRIES):
         temp = 0.5 if attempt == 1 else 0
         prompt = get_prompt(roman_section, filtered_rows, names, is_part)
-        
+
         try:
             generated = generate(prompt, pdf_file, temp)
             data = generated.parsed
 
             if data and "texts" in data and len(data["texts"]) > 0:
                 success = [
-                    1 if len(t["text"].strip()) > MIN_TEXT_LENGTH else 0 
+                    1 if len(t["text"].strip()) > MIN_TEXT_LENGTH else 0
                     for t in data["texts"]
                 ]
                 logger.info(f"Generated success: {success}")
-                
+
                 if sum(success) / len(success) > SUCCESS_THRESHOLD or is_part:
                     break
             else:
-                logger.warning(f"No texts found in response for section {roman_section}. Retrying...")
+                logger.warning(
+                    f"No texts found in response for section {roman_section}. Retrying..."
+                )
                 continue
-                
+
         except Exception as e:
             logger.error(f"Error processing section {section}, attempt {attempt}: {e}")
             continue
 
-    if not success:
+    if not success or not data:
         logger.error(f"Failed to extract text from section {section}")
-        return 0
+        return 0, []
 
     last_success = max([i for i, s in enumerate(success) if s == 1], default=-1)
     logger.info(f"Last success: {last_success}")
 
-    # Process and save results
+    # Process results and convert roman numerals back to numbers
+    extracted_texts = []
     for text in data["texts"]:
         text["id"] = text["id"].replace(roman_section, str(section))
+        extracted_texts.append(text)
 
-    os.makedirs(EXTRACTED_DIR, exist_ok=True)
-    part_suffix = f"_{part+1}" if part is not None else ""
-    csv_filename = f"{EXTRACTED_DIR}/{excel_sheet}_section_{section}{part_suffix}.csv"
-
-    descriptions_df = pd.DataFrame(data["texts"])
-    descriptions_df.to_csv(csv_filename, index=False, encoding="utf-8")
-    logger.info(f"Saved extracted descriptions to {csv_filename}")
-
-    return last_success
+    return last_success, extracted_texts
 
 
-def process_dataframe(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str]]:
+def process_dataframe(df: pd.DataFrame) -> Tuple[list[str], dict[str, str]]:
     """Process DataFrame to create FIDs and name mappings."""
     # Fill NaN values
     for col in ["CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]:
         df[col].fillna(0, inplace=True)
-    
+
     df = df[df["FEJEZET"].notna()]
 
     # Convert to numbered rows and fill missing values
     numbered_rows = [
-        to_numbers(row) for row in 
-        df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(index=False, name=None)
+        to_numbers(row)
+        for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
+            index=False, name=None
+        )
     ]
 
     filled_rows = []
@@ -326,7 +374,10 @@ def process_dataframe(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str]]:
     # Create FIDs
     fids = [
         ".".join([str(i) for i in row])
-        .replace(".0", "").replace(".0", "").replace(".0", "").replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
+        .replace(".0", "")
         for row in filled_rows
     ]
     df["fid"] = fids
@@ -337,7 +388,7 @@ def process_dataframe(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str]]:
     # Get deduplicated rows and create name mapping
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
-    
+
     names_by_fid = {}
     for _, row in df.iterrows():
         fid = row["fid"]
@@ -351,14 +402,15 @@ def process_dataframe(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str]]:
 def process_year(year: str) -> None:
     """Process a single year's data."""
     logger.info(f"Processing year: {year}")
-    
+
     excel_sheet = year
     pdf_file = f"{PROCESSED_DIR}/{year}.pdf"
+    all_extracted_texts = []
 
     try:
         df = pd.read_excel(EXCEL_FILE, sheet_name=excel_sheet)
         df = df[1:]  # Skip first row
-        
+
         deduplicated_rows, names_by_fid = process_dataframe(df)
 
         with open(f"{PROCESSED_DIR}/{excel_sheet}/summary.json", "r") as f:
@@ -370,32 +422,58 @@ def process_year(year: str) -> None:
 
             try:
                 page_count = get_page_lenth(section_pdf_file)
-                
+
                 if page_count > MAX_PAGES_PER_SPLIT:
                     splits = page_count // MAX_PAGES_PER_SPLIT + 1
                     split_files = split_pdf_by_pages(
-                        section_pdf_file, "split", f"{excel_sheet}_{section_number}", splits
+                        section_pdf_file,
+                        "split",
+                        f"{excel_sheet}_{section_number}",
+                        splits,
                     )
                     logger.info(f"Split PDF into {len(split_files)} parts.")
-                    
+
                     last_success = 0
                     for i, split_file in enumerate(split_files):
                         logger.info(f"Processing split file: {split_file}")
-                        last_success += extract_text_from_section(
-                            split_file, section_number, deduplicated_rows, 
-                            names_by_fid, excel_sheet, start_from=last_success, part=i
+                        last_success, section_texts = extract_text_from_section(
+                            split_file,
+                            section_number,
+                            deduplicated_rows,
+                            names_by_fid,
+                            excel_sheet,
+                            start_from=last_success,
+                            part=i,
                         )
+                        all_extracted_texts.extend(section_texts)
+                        last_success += len(section_texts)
                 else:
-                    extract_text_from_section(
-                        section_pdf_file, section_number, deduplicated_rows, 
-                        names_by_fid, excel_sheet
+                    _, section_texts = extract_text_from_section(
+                        section_pdf_file,
+                        section_number,
+                        deduplicated_rows,
+                        names_by_fid,
+                        excel_sheet,
                     )
-                    
+                    all_extracted_texts.extend(section_texts)
+
             except Exception as e:
                 logger.error(f"Error processing section {section_number}: {e}")
                 logger.error(traceback.format_exc())
                 continue
-                
+
+        # Save all extracted texts for the year in one CSV file
+        if all_extracted_texts:
+            os.makedirs(EXTRACTED_DIR, exist_ok=True)
+            csv_filename = f"{EXTRACTED_DIR}/{excel_sheet}.csv"
+            descriptions_df = pd.DataFrame(all_extracted_texts)
+            descriptions_df.to_csv(csv_filename, index=False, encoding="utf-8")
+            logger.info(
+                f"Saved all extracted descriptions for {year} to {csv_filename}"
+            )
+        else:
+            logger.warning(f"No texts extracted for year {year}")
+
     except Exception as e:
         logger.error(f"Error processing year {year}: {e}")
         logger.error(traceback.format_exc())
