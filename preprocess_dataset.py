@@ -77,13 +77,15 @@ def get_deduplicated_rows(df):
                         # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
                             context_established_by_current_sparse_row = True
-                    else: # current_row_sparse[i] is 0
+                    else:  # current_row_sparse[i] is 0
                         # Inherit from prev_filled_row as context hasn't changed at this point.
                         new_filled_row[i] = prev_filled_row[i]
-        
+
         filled_rows.append(new_filled_row)
-        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
-    
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
     print("Filled rows:")
     print(filled_rows[:10])  # Print first 10 for debugging
 
@@ -123,14 +125,13 @@ def get_deduplicated_rows(df):
     return str_rows
 
 
-excel_file = "xlsx/Elfogadott költségvetések.xlsx"
+excel_file = "adatok/koltsegvetesek.xlsx"
 
 years = [
     {
         "excel_sheet": "2016",
-        "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
         "columns": {
-            "name": "NEV",
+            "name": "MEGNEVEZÉS",
             "spending": "Kiadás",
             "income": "Bevétel",
             "support": "Támogatás",
@@ -138,7 +139,6 @@ years = [
     },
     {
         "excel_sheet": "2017",
-        "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
         "columns": {
             "name": "MEGNEVEZÉS",
             "spending": "Működési kiadás",
@@ -149,7 +149,6 @@ years = [
     },
     {
         "excel_sheet": "2018",
-        "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
         "columns": {
             "name": "MEGNEVEZÉS",
             "spending": "Működési kiadás",
@@ -160,7 +159,6 @@ years = [
     },
     {
         "excel_sheet": "2019",
-        "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
         "columns": {
             "name": "MEGNEVEZÉS",
             "spending": "Működési kiadás",
@@ -171,7 +169,6 @@ years = [
     },
     {
         "excel_sheet": "2020",
-        "pdf_file": "javaslatok/2020 összefűzött javaslat.pdf",
         "columns": {
             "name": "MEGNEVEZÉS",
             "spending": "Működési kiadás",
@@ -182,7 +179,6 @@ years = [
     },
     {
         "excel_sheet": "2021",
-        "pdf_file": "javaslatok/2021 összefűzött javaslat.pdf",
         "columns": {
             "name": "MEGNEVEZÉS",
             "spending": "Működési kiadás",
@@ -204,8 +200,6 @@ for year in years:
     name_column = year["columns"]["name"]
 
     df = pd.read_excel(excel_file, sheet_name=excel_sheet, dtype={"ÁHT-T": str})
-    df.columns = df.iloc[0]
-    df = df[1:]
     df = df[df["FEJEZET"].notna()]
 
     df["spending"] = df[year["columns"]["spending"]].apply(convert_float).astype(float)
@@ -280,13 +274,15 @@ for year in years:
                         # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
                             context_established_by_current_sparse_row = True
-                    else: # current_row_sparse[i] is 0
+                    else:  # current_row_sparse[i] is 0
                         # Inherit from prev_filled_row as context hasn't changed at this point.
                         new_filled_row[i] = prev_filled_row[i]
-        
+
         filled_rows.append(new_filled_row)
-        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
-    
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
     print("Filled rows:")
     print(filled_rows[:10])  # Print first 10 for debugging
 
@@ -398,8 +394,8 @@ for year in years:
 
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
-    if f"descriptions_{excel_sheet}.csv" in os.listdir():
-        df_indoklas = pd.read_csv(f"descriptions_{excel_sheet}.csv", index_col=0)
+    if f"indoklasok/szovegek/{excel_sheet}.csv" in os.listdir():
+        df_indoklas = pd.read_csv(f"indoklasok/szovegek/{excel_sheet}.csv", index_col=0)
         df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
     else:
         df_merged = df.copy()
@@ -440,17 +436,18 @@ for year in years:
         ]
     ]
 
+    os.makedirs("dataset", exist_ok=True)
+
     dataset.to_csv(
-        f"dataset_{excel_sheet}.csv",
+        f"dataset/{excel_sheet}.csv",
         index=False,
         sep=";",
         encoding="utf-8-sig",
     )
 
     dataset.to_json(
-        f"dataset_{excel_sheet}.json",
+        f"dataset/{excel_sheet}.json",
         orient="records",
         lines=True,
         force_ascii=False,
     )
-    print(f"Dataset for {year['pdf_file']} created.")
