@@ -394,8 +394,10 @@ for year in years:
 
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
-    if f"indoklasok/szovegek/{excel_sheet}.csv" in os.listdir():
-        df_indoklas = pd.read_csv(f"indoklasok/szovegek/{excel_sheet}.csv", index_col=0)
+    if os.path.isfile(f"indoklasok/szovegek/{excel_sheet}.csv"):
+        df_indoklas = pd.read_csv(f"indoklasok/szovegek/{excel_sheet}.csv", index_col=0,)
+        df_indoklas["fid"] = df_indoklas.index.astype(str)
+        df_indoklas["indoklas"] = df_indoklas["text"].astype(str)
         df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
     else:
         df_merged = df.copy()

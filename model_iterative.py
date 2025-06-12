@@ -1,3 +1,6 @@
+from pandas.core.frame import DataFrame
+
+
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=".env")
@@ -7,11 +10,6 @@ import os
 import pandas as pd
 import numpy as np
 import textdistance
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
-import seaborn as sns
-from tqdm.notebook import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from nltk.corpus import stopwords
@@ -25,12 +23,12 @@ from collections import Counter
 with open("n2f.json", "r") as f:
     n2f = json.load(f)
 
-df_2016 = pd.read_json("dataset_2016.json", lines=True)
-df_2017 = pd.read_json("dataset_2017.json", lines=True)
-df_2018 = pd.read_json("dataset_2018.json", lines=True)
-df_2019 = pd.read_json("dataset_2019.json", lines=True)
-df_2020 = pd.read_json("dataset_2020.json", lines=True)
-df_2021 = pd.read_json("dataset_2021.json", lines=True)
+df_2016 = pd.read_json("dataset/2016.json", lines=True)
+df_2017: DataFrame = pd.read_json("dataset/2017.json", lines=True)
+df_2018 = pd.read_json("dataset/2018.json", lines=True)
+df_2019 = pd.read_json("dataset/2019.json", lines=True)
+df_2020 = pd.read_json("dataset/2020.json", lines=True)
+df_2021 = pd.read_json("dataset/2021.json", lines=True)
 
 
 def preprocess_df(df):
@@ -412,13 +410,13 @@ def get_accuracy(y_true, y_pred, count_none=True):
 
 get_accuracy(y, y)
 
-excel_file = "xlsx/Elfogadott költségvetések.xlsx"
+excel_file = "adatok/koltsegvetesek.xlsx"
 
 years = [
     {
         "excel_sheet": "2016",
         "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
-        "name_column": "NEV",
+        "name_column": "MEGNEVEZÉS",
     },
     {
         "excel_sheet": "2017",
@@ -453,9 +451,6 @@ for year in years:
     pdf_file = year["pdf_file"]
 
     df = pd.read_excel(excel_file, sheet_name=excel_sheet)
-    df.columns = df.iloc[0]
-    df = df[1:]
-
     df = df[df["FEJEZET"].notna()]
     df["CIM"].fillna(0, inplace=True)
     df["ALCIM"].fillna(0, inplace=True)
@@ -760,13 +755,22 @@ def weighted_function_classifier(
     name_similarities = []
     for i, old_row in df_old.iterrows():
         old_name = old_row["name"]
-        similarity = textdistance.algorithms.levenshtein.normalized_similarity(name.lower(), old_name.lower(),)
+        similarity = textdistance.algorithms.levenshtein.normalized_similarity(
+            name.lower(),
+            old_name.lower(),
+        )
         if similarity > 0.68:  # Only consider significant matches
             name_similarities.append((i, similarity))
 
     if not name_similarities:
         for name_key in n2f.keys():
-            if textdistance.algorithms.levenshtein.normalized_similarity(stem(name), name_key, ) > 0.64:
+            if (
+                textdistance.algorithms.levenshtein.normalized_similarity(
+                    stem(name),
+                    name_key,
+                )
+                > 0.64
+            ):
                 method_matches["name_fuzzy"] = n2f[name_key]
                 break
 
@@ -782,7 +786,7 @@ def weighted_function_classifier(
     # 5. Fuzzy FID matching
     fid_similarities = []
     for i, old_row in df_old.iterrows():
-        search_fid = ".".join(fid.split(".")[:-1])+"."
+        search_fid = ".".join(fid.split(".")[:-1]) + "."
         if old_row["fid"].startswith(search_fid):
             similarity = fid.count(".") / old_row["fid"].count(".")
             fid_similarities.append((i, similarity))
@@ -827,7 +831,10 @@ def weighted_function_classifier(
     name_similarities_fallback = []
     for i, old_row in df_old.iterrows():
         old_name = old_row["name"]
-        similarity = textdistance.algorithms.levenshtein.normalized_similarity(name.lower(), old_name.lower(), )
+        similarity = textdistance.algorithms.levenshtein.normalized_similarity(
+            name.lower(),
+            old_name.lower(),
+        )
         if similarity > 0.2:  # Only consider significant matches
             name_similarities_fallback.append((i, similarity))
 
@@ -872,39 +879,41 @@ detailed_predictions = X.apply(
 
 def process_row(row):
     """Process row using the optimized Random Forest model"""
-    
+
     import joblib
     import numpy as np
     import pandas as pd
-    
+
     try:
         # Load the optimized Random Forest model
-        rf_model = joblib.load('random_forest_classifier_optimized.joblib')
-        feature_info = joblib.load('rf_feature_info_optimized.joblib')
+        rf_model = joblib.load("random_forest_classifier_optimized.joblib")
+        feature_info = joblib.load("rf_feature_info_optimized.joblib")
     except FileNotFoundError:
-        print("Optimized Random Forest model not found. Using fallback ensemble method.")
+        print(
+            "Optimized Random Forest model not found. Using fallback ensemble method."
+        )
         return row
-    
+
     def predict_with_rf(input_row):
         """Predict using the optimized Random Forest"""
         try:
             # Prepare features using the same encoding as training
-            feature_columns = feature_info['feature_columns']
-            all_encoded_features = feature_info['all_encoded_features']
-            
+            feature_columns = feature_info["feature_columns"]
+            all_encoded_features = feature_info["all_encoded_features"]
+
             # Create feature vector
             X_pred = pd.DataFrame(0, index=[0], columns=all_encoded_features)
-            
+
             # For each feature column, create one-hot encoded features
             for col in feature_columns:
                 if col in input_row and input_row[col] is not None:
                     value = str(input_row[col]).strip()
-                    if value == '' or pd.isna(value):
-                        value = 'UNKNOWN'
-                    
+                    if value == "" or pd.isna(value):
+                        value = "UNKNOWN"
+
                     # Create dummy variable name
                     dummy_col = f"{col}_{value}"
-                    
+
                     # Set the corresponding dummy variable if it exists
                     if dummy_col in X_pred.columns:
                         X_pred.loc[0, dummy_col] = 1
@@ -913,55 +922,64 @@ def process_row(row):
                         unknown_col = f"{col}_UNKNOWN"
                         if unknown_col in X_pred.columns:
                             X_pred.loc[0, unknown_col] = 1
-            
+
             # Make prediction
             prediction = rf_model.predict(X_pred)[0]
             probabilities = rf_model.predict_proba(X_pred)[0]
             confidence = np.max(probabilities)
-            
+
             return prediction, confidence
-            
+
         except Exception as e:
             print(f"Error in Random Forest prediction: {e}")
             return None, 0.0
-    
+
     # Get prediction from Random Forest
     prediction, confidence = predict_with_rf(row)
-    
+
     # Set the results
     row["predicted_function"] = prediction
     row["ensemble_confidence"] = confidence
-    
+
     # Determine which method contributed to the prediction
     if prediction is not None:
         # Check which features are available to determine prediction method
-        feature_columns = ['ahtt_exact_match', 'name_exact_match', 'fid_exact_match', 
-                          'name_fuzzy_match', 'fid_fuzzy_match', 'indoklas_fuzzy', 
-                          'ctfidf', 'name_fuzzy_fallback']
-        
+        feature_columns = [
+            "ahtt_exact_match",
+            "name_exact_match",
+            "fid_exact_match",
+            "name_fuzzy_match",
+            "fid_fuzzy_match",
+            "indoklas_fuzzy",
+            "ctfidf",
+            "name_fuzzy_fallback",
+        ]
+
         # Priority order for determining prediction method
         method_priority = [
-            'ahtt_exact_match',
-            'name_exact_match', 
-            'fid_exact_match',
-            'name_fuzzy_match',
-            'fid_fuzzy_match',
-            'ctfidf',
-            'indoklas_fuzzy',
-            'name_fuzzy_fallback'
+            "ahtt_exact_match",
+            "name_exact_match",
+            "fid_exact_match",
+            "name_fuzzy_match",
+            "fid_fuzzy_match",
+            "ctfidf",
+            "indoklas_fuzzy",
+            "name_fuzzy_fallback",
         ]
-        
+
         # Find the highest priority method that has a non-null value
         prediction_method = None
         for method in method_priority:
             if method in row and row[method] is not None and not pd.isna(row[method]):
                 prediction_method = method
                 break
-        
-        row["prediction_function"] = prediction_method if prediction_method else "random_forest"
+
+        row["prediction_function"] = (
+            prediction_method if prediction_method else "random_forest"
+        )
     else:
         row["prediction_function"] = None
-    
+
     return row
 
 
