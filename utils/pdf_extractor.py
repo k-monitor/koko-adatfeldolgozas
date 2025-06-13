@@ -1,6 +1,7 @@
 from typing import List
 import os  # Add missing import
 import PyPDF2  # Add missing import
+import logging  # Add logging import
 from pdfminer.high_level import (
     extract_pages,
     extract_text,
@@ -8,6 +9,9 @@ from pdfminer.high_level import (
 from pdfminer.layout import LTTextContainer, LAParams  # Import LAParams
 from pdfminer.pdfparser import PDFSyntaxError  # Specific pdfminer error
 from pdfminer.psparser import PSSyntaxError  # Another potential parsing error
+
+# Silence pdfminer warnings
+logging.getLogger('pdfminer').setLevel(logging.ERROR)
 
 
 def sanitize_filename(filename: str) -> str:
