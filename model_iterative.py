@@ -935,9 +935,6 @@ matches_df = pd.DataFrame(
         "indoklas": detailed_predictions.apply(lambda x: x["oldrow"]["indoklas"]),
         "ÁHT-T": detailed_predictions.apply(lambda x: x["oldrow"]["ÁHT-T"]),
         "sum": detailed_predictions.apply(lambda x: x["oldrow"]["sum"]),
-        "ensemble_confidence": detailed_predictions.apply(
-            lambda x: x["ensemble_confidence"]
-        ),
     }
 )
 
@@ -1009,7 +1006,6 @@ tutifilter = matches_df["prediction_function"].apply(
     lambda x: x
     in ["fid_fuzzy_match", "indoklas_fuzzy", None, "name_fuzzy_fallback", "ctfidf"]
 )
-tutifilter = matches_df["ensemble_confidence"] < 0.25
 matches_df["tuti"] = ~tutifilter
 matches_df.to_excel(f"matches_df_{testyear}.xlsx", index=False)
 matches_df_tuti = matches_df[~tutifilter]
