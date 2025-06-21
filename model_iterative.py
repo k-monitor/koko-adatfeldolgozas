@@ -12,6 +12,7 @@ from nltk.stem import SnowballStemmer
 from collections import defaultdict, Counter
 from dotenv import load_dotenv
 import nltk
+from generate_name_indexes import generate_name_indexes
 
 # Load environment variables
 load_dotenv(dotenv_path=".env")
@@ -69,6 +70,10 @@ POSSIBLE_FUNCTIONS = [
 ]
 
 FUNCTION_YEARS = ["2016", "2017", "2018", "2019"]
+
+def generate_name_indexes_filtered(test_year):
+    filtered_years = [year for year in FUNCTION_YEARS if year < str(test_year)]
+    generate_name_indexes(years=filtered_years, excel_file="adatok/koltsegvetesek.xlsx")
 
 USE_N2F = False
 
