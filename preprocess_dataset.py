@@ -2,6 +2,70 @@ from pandas.core.frame import DataFrame
 import pandas as pd
 import os
 
+excel_file = "adatok/koltsegvetesek.xlsx"
+
+years = [
+    {
+        "excel_sheet": "2016",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Kiadás",
+            "income": "Bevétel",
+            "support": "Támogatás",
+        },
+    },
+    {
+        "excel_sheet": "2017",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2018",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2019",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2020",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2021",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+]
+
 
 def to_numbers(row):
     """
@@ -123,71 +187,6 @@ def get_deduplicated_rows(df):
     ]
 
     return str_rows
-
-
-excel_file = "adatok/koltsegvetesek.xlsx"
-
-years = [
-    {
-        "excel_sheet": "2016",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Kiadás",
-            "income": "Bevétel",
-            "support": "Támogatás",
-        },
-    },
-    {
-        "excel_sheet": "2017",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2018",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2019",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2020",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2021",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-]
 
 
 def convert_float(value):
@@ -338,6 +337,14 @@ for year in years:
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
 
+    def not_top_fid(row_fid):
+        for irow in df.to_dict(orient="records"):
+            if irow["fid"].startswith(row_fid + "."):
+                return False
+        return True
+
+    df = df[df["fid"].apply(not_top_fid)]
+
     # sum the values in the columns 'spending', 'income', 'support', 'accumulated_spending', 'accumulated_income'
     # for other columns take the first value
     df = (
@@ -395,7 +402,10 @@ for year in years:
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
     if os.path.isfile(f"indoklasok/szovegek/{excel_sheet}.csv"):
-        df_indoklas = pd.read_csv(f"indoklasok/szovegek/{excel_sheet}.csv", index_col=0,)
+        df_indoklas = pd.read_csv(
+            f"indoklasok/szovegek/{excel_sheet}.csv",
+            index_col=0,
+        )
         df_indoklas["fid"] = df_indoklas.index.astype(str)
         df_indoklas["indoklas"] = df_indoklas["text"].astype(str)
         df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
