@@ -311,7 +311,6 @@ class FunctionClassifier:
         vector = self.ctfidf_vectorizer.transform(count)
         distances = cosine_similarity(vector, self.ctfidf_matrix)
         prediction = np.argmax(distances, 1)
-        print(f"classify_ctfidf Prediction: {prediction[0]}")
         return self.c2f(prediction[0])
 
     def get_sub_names(self, fid, year):
