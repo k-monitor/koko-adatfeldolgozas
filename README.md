@@ -3,6 +3,34 @@
 ## előkövetelmények
 
 - Python 3.13
+- Költségvetési adatok táblázat
+
+### Költségvetési adatok táblázat
+
+Ez egy `.xlsx` kiterjesztésű excel fájl kell legyen (`adatok/koltsegvetesek.xlsx`). A munkalapok nevét az évszámok szerint kell elnevezni (pl.: `2016`, `2020`). A lapok tartalmazzák az előirányzatok listáját a szükséges adatokkal. A táblázat első sora a egy fejléc kell legyen, ami tartalmazza a szükséges oszlopneveket. A következő sortól pedig az adatoknak kell következni.
+
+Oszlopok (ezen kívül más oszlopok is megengedettek):
+- `FEJEZET` *
+- `CIM` *
+- `ALCIM` *
+- `JOGCIM1` *
+- `JOGCIM2` *
+- `ÁHT-T`
+- `Funkció`
+- `MEGNEVEZÉS` *
+- Összegek v1
+  - `Kiadás` **
+  - `Bevétel` **
+  - `Támogatás` **
+- Összegek v2
+  - `Működési kiadás` ***
+  - `Működési bevétel` ***
+  - `Felhalmozási kiadás` ***
+  - `Felhalmozási bevétel` ***
+
+* kötelező oszlop
+** kötelező 2016 és korábbi költségvetések esetén
+*** kötelező 2016 utáni költségvetések esetén
 
 ## python környezet felállítása (opcionális)
 
@@ -96,3 +124,81 @@ Hogy a feldarabolt pdf-ekből kinyerd a leírásokat, futtatnod kell az `extract
 ```bash
 python extract_description.py
 ```
+
+## Adathalmaz előfeldolgozása
+
+### Új év hozzáadása
+
+A forráskód elején található egy `years` tömb, amit ki kell egészíteni egy új elemmel, pl.:
+```python
+    {
+        "excel_sheet": "2021",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    }
+```
+Ha 2016 utáni adatról van szó, akkor a fenti példában csak az `excel_sheet`-et kell átírni, ha korábbi év, akkor valószínűleg ilyesmi kell legyen:
+```python
+    {
+        "excel_sheet": "2016",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Kiadás",
+            "income": "Bevétel",
+            "support": "Támogatás",
+        },
+    }
+```
+
+### Előfeltételek
+
+- `adatok/koltsegvetesek.xlsx`
+- `indoklasok/szovegek/{évszám}.csv`
+
+### Futtatás
+
+A `preprocess_dataset.py` fájlt kell futtatni:
+
+```bash
+python preprocess_dataset.py
+```
+
+Ez létrehozza a `dataset/` mappában az `{évszám}.json` (jsonlines file) és `{évszám}.csv` fájlokat. Ezek a fájlok egyben tartalmazzák az indoklásokat és a költségvetési adatok egységes formátumban.
+
+## Funkció besoroló modell
+
+Ez maga a lényeg, ez az, ami az eddig előfeldolgozott adatok alapján ellátja az előirányzatokat funkciókódokkal. 
+
+### Előfeltételek
+
+- `adatok/koltsegvetesek.xlsx`
+- `dataset/{évszám}.json`
+
+### Futtatás
+
+A `model_iterative.py` fájlt kell futtatni:
+
+```bash
+python model_iterative.py
+```
+
+Ez létrehozza a `matches_df_{évszám}.xlsx` fájlt, ebben lesznek az oszlopok: 
+- `section_name`: a fejezet neve
+- `fid`: a fejezet beli hely `fejezet.cím.alcím...` formátumban
+- `ÁHT-T`: ÁHT-T kód (ha van)
+- `name`: előirányzat neve
+- `indoklas`: indoklás szövege
+- `predicted_function`: a modell által tippelt funkciókód
+- `prediction_function`: a tippeléshez használt módszer
+- `needs_review`: át kell nézni embernek a tippet
+- `{módszerek}`: módszerek tippjei (ez több oszlop)
+- `sum`: az előirányzat kiadási összegei
+- `true_function`: helyes funkciókód (ha van)
+- `is_correct`: a true_function egyezik-e a predicted_function-nel, true/false érték
+
+A futás közben létrejön egy `n2f.json` fájl is, amit korábbi előrányzat nevek és funkciókódok összekötésére használ a modell.
