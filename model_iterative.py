@@ -71,9 +71,11 @@ POSSIBLE_FUNCTIONS = [
 
 FUNCTION_YEARS = ["2016", "2017", "2018", "2019"]
 
+
 def generate_name_indexes_filtered(test_year):
     filtered_years = [year for year in FUNCTION_YEARS if year < str(test_year)]
     generate_name_indexes(years=filtered_years, excel_file="adatok/koltsegvetesek.xlsx")
+
 
 USE_N2F = False
 
@@ -134,8 +136,9 @@ class DataLoader:
     @staticmethod
     def preprocess_df(df):
         """Preprocess a budget dataframe."""
-        df["indoklas"].fillna("", inplace=True)
-        df.fillna(0, inplace=True)
+        df = df.copy()  # Create a copy to avoid SettingWithCopyWarning
+        df["indoklas"] = df["indoklas"].fillna("")
+        df = df.fillna(0)
         df["sum"] = df["spending"] + df["accumulated_spending"]
         return df
 
@@ -155,11 +158,8 @@ class DataLoader:
     @staticmethod
     def process_excel_df(df, name_column):
         """Process individual Excel dataframe."""
-        df = df[df["FEJEZET"].notna()]
-        df["CIM"].fillna(0, inplace=True)
-        df["ALCIM"].fillna(0, inplace=True)
-        df["JOGCIM1"].fillna(0, inplace=True)
-        df["JOGCIM2"].fillna(0, inplace=True)
+        df = df[df["FEJEZET"].notna()].copy()  # Create explicit copy to avoid warnings
+        df = df.fillna({"CIM": 0, "ALCIM": 0, "JOGCIM1": 0, "JOGCIM2": 0})
 
         # Generate FIDs
         numbered_rows = [
@@ -311,6 +311,7 @@ class FunctionClassifier:
         vector = self.ctfidf_vectorizer.transform(count)
         distances = cosine_similarity(vector, self.ctfidf_matrix)
         prediction = np.argmax(distances, 1)
+        print(f"classify_ctfidf Prediction: {prediction[0]}")
         return self.c2f(prediction[0])
 
     def get_sub_names(self, fid, year):
@@ -560,9 +561,11 @@ class ResultAnalyzer:
         ResultAnalyzer._analyze_method_group(matches_df, PRECISE_METHODS)
         print()
 
-        # Analyze imprecise methods
+        # Analyze imprecise methods (excluding cases covered by precise methods)
         print("=== IMPRECISE METHODS ===")
-        ResultAnalyzer._analyze_method_group(matches_df, IMPRECISE_METHODS)
+        ResultAnalyzer._analyze_method_group(
+            matches_df, IMPRECISE_METHODS, exclude_methods=PRECISE_METHODS
+        )
         print()
 
         # Individual method analysis
@@ -590,27 +593,43 @@ class ResultAnalyzer:
                 )
 
     @staticmethod
-    def _analyze_method_group(matches_df, methods):
+    def _analyze_method_group(matches_df, methods, exclude_methods=None):
         """Analyze a group of methods."""
-        # Create mask for any method in the group
-        group_mask = pd.Series(False, index=matches_df.index)
+        # Create exclusion mask if exclude_methods provided
+        exclusion_mask = pd.Series(False, index=matches_df.index)
+        if exclude_methods:
+            for method in exclude_methods:
+                exclusion_mask |= matches_df[method].notnull()
+
+        # Create mask for any method in the group (before exclusion)
+        group_mask_raw = pd.Series(False, index=matches_df.index)
         for method in methods:
-            group_mask |= matches_df[method].notnull()
+            group_mask_raw |= matches_df[method].notnull()
+
+        # Apply exclusion - only analyze cases not covered by excluded methods
+        if exclude_methods:
+            # Final group mask: cases covered by this group AND not covered by excluded methods
+            group_mask = group_mask_raw & ~exclusion_mask
+            available_cases = len(matches_df) - exclusion_mask.sum()
+        else:
+            group_mask = group_mask_raw
+            available_cases = len(matches_df)
 
         if group_mask.sum() == 0:
             print("No predictions from this method group")
             return
 
-        # Calculate group-level accuracy
+        # Calculate group-level accuracy - only for cases in the final group mask
         group_correct = pd.Series(False, index=matches_df.index)
         for method in methods:
-            method_mask = matches_df[method].notnull()
+            # Only consider predictions that are in the final group mask
+            method_mask = matches_df[method].notnull() & group_mask
             group_correct |= (
                 matches_df[method] == matches_df["true_function"]
             ) & method_mask
 
         group_accuracy = group_correct.sum() / group_mask.sum()
-        group_coverage = group_mask.sum() / len(matches_df)
+        group_coverage = group_mask.sum() / available_cases
 
         # Sum-weighted metrics
         group_sum_correct = matches_df[group_correct]["sum"].sum()
@@ -618,7 +637,12 @@ class ResultAnalyzer:
         group_sum_accuracy = (
             group_sum_correct / group_sum_total if group_sum_total > 0 else 0
         )
-        group_sum_coverage = group_sum_total / matches_df["sum"].sum()
+
+        if exclude_methods:
+            available_sum = matches_df[~exclusion_mask]["sum"].sum()
+        else:
+            available_sum = matches_df["sum"].sum()
+        group_sum_coverage = group_sum_total / available_sum if available_sum > 0 else 0
 
         print(f"Group Accuracy: {group_accuracy:.4f}")
         print(f"Group Coverage: {group_coverage:.4f}")
@@ -673,7 +697,7 @@ def main():
     ResultAnalyzer.analyze_results(matches_df)
 
     # Save results
-    matches_df.to_excel("matches_df_2020.xlsx", index=False)
+    matches_df.to_excel(f"matches_df_{TEST_YEAR}.xlsx", index=False)
 
     return matches_df
 
