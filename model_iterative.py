@@ -1,4 +1,3 @@
-import os
 import json
 import pandas as pd
 import numpy as np
@@ -11,14 +10,13 @@ import scipy.sparse as sp
 from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
 from collections import defaultdict, Counter
-from time import sleep
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 import nltk
 
 # Load environment variables
 load_dotenv(dotenv_path=".env")
+
+TEST_YEAR = 2019
 
 # Constants
 POSSIBLE_FUNCTIONS = [
@@ -32,7 +30,7 @@ POSSIBLE_FUNCTIONS = [
     "F13.a", "F13.b", "F14", "F15", "F16"
 ]
 
-YEARS = ["2016", "2017", "2018", "2019"]
+FUNCTION_YEARS = ["2016", "2017", "2018", "2019"]
 
 USE_N2F = False
 
@@ -89,7 +87,7 @@ class DataLoader:
         excel_file = "adatok/koltsegvetesek.xlsx"
         excel_dfs = {}
         
-        for year in YEARS:
+        for year in FUNCTION_YEARS:
             df = pd.read_excel(excel_file, sheet_name=year)
             df = DataLoader.process_excel_df(df, "MEGNEVEZÉS")
             excel_dfs[year] = df
@@ -527,8 +525,14 @@ def main():
     """Main execution function."""
     # Load data
     datasets = DataLoader.load_budget_data()
-    df_old = datasets[2016]
-    df_new = datasets[2017]
+    
+    df_old_list = []
+    for year in range(2016, TEST_YEAR):
+        df_old_list.append(datasets[year])
+    df_old_list.reverse() # this helps to use the most recent data first
+    df_old = pd.concat(df_old_list, ignore_index=True)
+    
+    df_new = datasets[TEST_YEAR]
     
     # Filter data
     df_new = df_new[df_new["sum"] > 0]
@@ -564,7 +568,7 @@ def main():
     ResultAnalyzer.analyze_results(matches_df)
     
     # Save results
-    matches_df.to_excel("matches_df_2017.xlsx", index=False)
+    matches_df.to_excel("matches_df_2020.xlsx", index=False)
     
     return matches_df
 
