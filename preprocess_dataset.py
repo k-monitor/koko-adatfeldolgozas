@@ -233,10 +233,7 @@ for year in years:
         df["ÁHT-T"] = None
 
     print(df.head(10))
-    df["CIM"].fillna(0, inplace=True)
-    df["ALCIM"].fillna(0, inplace=True)
-    df["JOGCIM1"].fillna(0, inplace=True)
-    df["JOGCIM2"].fillna(0, inplace=True)
+    df = df.fillna({"CIM": 0, "ALCIM": 0, "JOGCIM1": 0, "JOGCIM2": 0})
 
     numbered_rows = [
         to_numbers(row)
@@ -315,7 +312,7 @@ for year in years:
         lambda x: isinstance(x, str) and x.strip() == ""
     )
     print(f"Nulls before: {functions_null_mask.sum()}")
-    df["function"][functions_null_mask] = df["fid"][functions_null_mask].apply(
+    df.loc[functions_null_mask, "function"] = df.loc[functions_null_mask, "fid"].apply(
         lambda x: find_closest_function(functions, x)
     )
     functions_null_mask = df["function"].apply(
@@ -329,7 +326,8 @@ for year in years:
         .apply(
             lambda x: x.iloc[0, 0].split(" ")[0]
             + " "
-            + " ".join(x.iloc[0, 0].split(" ")[1:]).title()
+            + " ".join(x.iloc[0, 0].split(" ")[1:]).title(),
+            include_groups=False
         )
     )
     section_names.index = section_names.index.astype(int).astype(str)
@@ -377,27 +375,6 @@ for year in years:
             lambda y: [int(i) for i in y] if isinstance(y, list) else y
         ),
     ).reset_index(drop=True)
-
-    # ahtts = get_functions(df, column="ÁHT-T")
-    # print(f"Functions: {len(ahtts)}")
-    # print(f"ÁHT-T: {df['ÁHT-T'].head(10)}")
-    # ahtts_null_mask = df["ÁHT-T"].apply(
-    #     lambda x: not x
-    #     or (isinstance(x, str) and x.strip() == "NaN")
-    #     or (type(x) == float and math.isnan(x))
-    # )
-    # print(f"ÁHT-T before: {ahtts_null_mask.sum()}")
-
-    # df["ÁHT-T"][ahtts_null_mask] = df["fid"][ahtts_null_mask].apply(
-    #     lambda x: find_closest_function(ahtts, x)
-    # )
-    # ahtts_null_mask = df["ÁHT-T"].apply(
-    #     lambda x: not x
-    #     or (isinstance(x, str) and x.strip() == "NaN")
-    #     or (type(x) == float and math.isnan(x))
-    # )
-    # print(f"ÁHT-T after: {ahtts_null_mask.sum()}")
-    # df["ÁHT-T"] = df["ÁHT-T"].astype(str).str.replace(r"\.0$", "", regex=True)
 
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
