@@ -17,7 +17,7 @@ from generate_name_indexes import generate_name_indexes
 # Load environment variables
 load_dotenv(dotenv_path=".env")
 
-TEST_YEAR = 2019
+TEST_YEAR = 2017
 
 # Constants
 POSSIBLE_FUNCTIONS = [
@@ -520,6 +520,9 @@ class ResultAnalyzer:
                 ),
                 "prediction_function": detailed_predictions.apply(
                     lambda x: x["prediction_function"]
+                ),
+                "method_sureness": detailed_predictions.apply(
+                    lambda x: "helyesnek elfogadott" if str(x["prediction_function"]) in ["ahtt_exact", "name_exact", "fid_exact", "name_fuzzy"] else "átnézendő"
                 ),
                 "ahtt_exact_match": detailed_predictions.apply(
                     lambda x: x["ahtt_exact"]

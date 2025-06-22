@@ -273,6 +273,7 @@ Ez létrehozza a `matches_df_{évszám}.xlsx` fájlt, ebben lesznek az oszlopok:
 - `indoklas`: indoklás szövege
 - `predicted_function`: a modell által tippelt funkciókód
 - `prediction_function`: a tippeléshez használt módszer
+- `method_sureness`: a módszer melyik csoportba tartozik (`helyesnek elfogadott` vagy `átnézendő`)
 - `needs_review`: át kell nézni embernek a tippet
 - `{módszerek}`: módszerek tippjei (ez több oszlop)
 - `sum`: az előirányzat kiadási összegei
