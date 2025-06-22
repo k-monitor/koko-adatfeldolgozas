@@ -1,5 +1,81 @@
 # költségvetés adatfeldolgozás
 
+## Bevezetés
+
+Probléma, amit meg szeretnénk oldani: számos költségvetési előirányzathoz nem tartozik funkciókód.
+
+### Funkciók
+
+**ÁLLAMI MŰKÖDÉSI FUNKCIÓK**
+
+*   **F01: Általános közösségi szolgáltatások**
+    *   F01.a: Törvényhozó és végrehajtó szervek
+    *   F01.b: Pénzügyi és költségvetési tevékenységek és szolgáltatások
+    *   F01.c: Külügyek
+    *   F01.d: Alapkutatás
+    *   F01.e: Műszaki fejlesztés
+    *   F01.f: Egyéb általános közösségi szolgáltatások
+*   **F02: Védelem**
+*   **F03: Rendvédelem és közbiztonság**
+    *   F03.a: Igazságszolgáltatás
+    *   F03.b: Rend- és közbiztonság
+    *   F03.c: Tűzvédelem
+    *   F03.d: Büntetésvégrehajtási igazgatás és működtetés
+
+**JÓLÉTI FUNKCIÓK**
+
+*   **F04: Oktatási tevékenységek és szolgáltatások**
+    *   F04.a: Iskolai előkészítés és alapfokú oktatás
+    *   F04.b: Középfokú oktatás
+    *   F04.c: Felsőfokú oktatás
+    *   F04.d: Egyéb oktatás
+*   **F05: Egészségügy**
+    *   F05.a: Kórházi tevékenységek és szolgáltatások
+    *   F05.b: Háziorvosi és gyermekorvosi szolgálat
+    *   F05.c: Rendelői, orvosi, fogorvosi ellátás
+    *   F05.d: Közegészségügyi tevékenységek és szolgáltatások
+    *   F05.e: Egyéb egészségügy
+*   **F06: Társadalombiztosítási és jóléti szolgáltatások**
+    *   F06.a: Táppénz, anyasági vagy ideiglenes rokkantsági juttatások
+    *   F06.b: Nyugellátások
+    *   F06.c: Egyéb társadalombiztosítási ellátások
+    *   F06.d: Munkanélküli ellátások
+    *   F06.e: Családi pótlékok és gyermekeknek járó juttatások
+    *   F06.f: Egyéb szociális támogatások
+    *   F06.g: Szociális és jóléti intézményi szolgáltatások
+*   **F07: Lakásügyek, települési és közösségi tevékenységek és szolgáltatások**
+*   **F08: Szórakoztató, kulturális, vallási tevékenységek és szolgáltatások**
+    *   F08.a: Sport és szabadidős tevékenységek és szolgáltatások
+    *   F08.b: Kulturális tevékenységek és szolgáltatások
+    *   F08.c: Műsorszórási és kiadói tevékenységek és szolgáltatások
+    *   F08.d: Hitéleti tevékenységek
+    *   F08.e: Párttevékenységek
+    *   F08.f: Egyéb közösségi és kulturális tevékenységek
+
+**GAZDASÁGI FUNKCIÓK**
+
+*   **F09: Tüzelő- és üzemanyag, valamint energiaellátási feladatok**
+*   **F10: Mező-, erdő-, hal- és vadgazdálkodás**
+*   **F11: Bányászat és ipar**
+*   **F12: Közlekedési és távközlési tevékenységek és szolgáltatások**
+    *   F12.a: Közúti közlekedési tevékenységek
+    *   F12.b: Vasúti közlekedésügyek és szolgáltatások
+    *   F12.c: Távközlés
+    *   F12.d: Egyéb közlekedés és szállítás
+*   **F13: Egyéb gazdasági tevékenységek és szolgáltatások**
+    *   F13.a: Többcélú fejlesztési témák tevékenységei és szolgáltatásai
+    *   F13.b: Egyéb gazdasági tevékenységek és szolgáltatások
+*   **F14: Környezetvédelem**
+
+**ÁLLAMADÓSSÁG-KEZELÉS**
+
+*   **F15: Államadósság-kezelés, államháztartás**
+
+**FUNKCIÓBA NEM SOROLHATÓ TÉTELEK**
+
+*   **F16: A főcsoportokba nem sorolható tételek**
+
+
 ## előkövetelmények
 
 - Python 3.13
@@ -142,7 +218,9 @@ A forráskód elején található egy `years` tömb, amit ki kell egészíteni e
         },
     }
 ```
+
 Ha 2016 utáni adatról van szó, akkor a fenti példában csak az `excel_sheet`-et kell átírni, ha korábbi év, akkor valószínűleg ilyesmi kell legyen:
+
 ```python
     {
         "excel_sheet": "2016",
@@ -202,3 +280,73 @@ Ez létrehozza a `matches_df_{évszám}.xlsx` fájlt, ebben lesznek az oszlopok:
 - `is_correct`: a true_function egyezik-e a predicted_function-nel, true/false érték
 
 A futás közben létrejön egy `n2f.json` fájl is, amit korábbi előrányzat nevek és funkciókódok összekötésére használ a modell.
+
+### Módszerek
+
+#### Keresésen alapuló módszerek
+
+`ahtt_exact_match`: Egy az egyben próbál ÁHT-T kód alapján előirányzatot keresni valamelyik korábbi évből és annak a funcióját adja meg.
+
+`name_exact_match`: Egy az egyben (kis-nagy betűket figyelmen kívül hagyva) próbál név alapján előirányzatot keresni valamelyik korábbi évből és annak a funcióját adja meg.
+
+`fid_exact_match`: A fejezetbeli hely (amit én fid-nek hívok, pl.: 14.20.5.7) szerint szó szerint próbál előirányzatot keresni valamelyik korábbi évből és annak a funcióját adja meg.
+
+`name_fuzzy_match`: Megpróbál hasonló nevű előirányzatokat keresni korábbi évekből jaro_winkler algoritmussal, ha a score > 0.84 (threshold). Ezek közül a legvalószínűbb funkcióját adja meg.
+
+`fid_fuzzy_match`: A fejezet/cím/alcím (ahol az előirányzat van, pl.: 14.20.5.7 esetén ez 14.20.5 alatti előirányzatok) leggyakoribb funkcióját adja meg.
+
+`indoklas_fuzzy`: Ez sima tf-idf vektorizált indoklásszövegek közt néz coszinusz távolságot és így keresi meg korábbi évekből a hasonló előirányzatot (egy threshold mellett), annak a funkcióját adja meg.
+
+`name_fuzzy_fallback`: Ugyanaz, mint name_fuzzy_match, csak sokkal kisebb (0.5) threshold-dal.
+
+#### Gépi tanuláson alapuló szöveg klasszifikációs módszer
+
+`ctfidf`: Egy c-TF-IDF modell, amit korábbi évek indoklás szöveg-funkció párosain tanítottam, és szöveg alapján mond egy funkciót.
+
+### Módszerek egyesítése
+
+A módszerek jelenleg egymás után sorban következnek, ha egy módszer nem tudja besorolni az előirányzatot, akkor továbbadja a következőnek.
+
+A prioritási sorrend: `ahtt_exact_match > name_exact_match > fid_exact_match > name_fuzzy_match > indoklas_fuzzy > fid_fuzzy_match > name_fuzzy_fallback > ctfidf`
+
+Nem minden módszer elég megbízható, ezért külÖn kezeljük azokat a tippeket, amikre jobb és külön, amikre kevésbé megbízható módszerrel jutottunk.
+
+megbízható:
+- ahtt_exact_match
+- name_exact_match
+- fid_exact_match
+- name_fuzzy_match
+
+nem elég megbízható:
+- fid_fuzzy_match
+- indoklas_fuzzy
+- name_fuzzy_fallback
+- ctfidf
+
+Az alapján, hogy melyik csoport módszerét használtuk, megkülönböztetünk "helyesként számontartott" és "átnézendő" előirányzatokat.
+
+### Kiértékelés
+
+A módszerek kiértékelésekor két metrikára támaszkodhatunk: pontosság és lefedettség.
+
+A pontosság alatt azt értjük, hogy az eltalált esetek száma osztva az összes esettel, amire a modell valamilyen választ adott.
+
+Ami kicsit megtévesztő lehet, hogy itt a módszereknél csak azokat az eseteket számoltam bele, ahol az adott módszer tudott válaszolni valamit. És ennek a magyarázatára szolgál a lefedettség.
+
+Tehát, ha például ÁHT-T párosításnál a lefedettség 99%, akkor az azt jelenti, hogy a minták 99%-ához sikerült ÁHT-T kódot találni korábbi évekből. Ha pedig a pontosság pl. 95%, akkor az pedig azt, hogy ennek a 99%-nak a 95%-át sikerül ÁHT-T kód szerint helyesen besorolni.
+
+A megoldásnak olyan mérőszámai vannak, hogy:
+- Mekkora azoknak az előirányzatoknak az aránya, amiket "helyesként számontartott"-nak jelölünk. Vagyis már nem kell hozzányúlni.
+- A "helyesként számontartott"-nak jelölt előirányzatok mekkora arányban helyesek tényleg. Ha ez túl kicsi az a végleges munka minőségére mehet.
+- Mekkora azoknak az előirányzatoknak az aránya, amiket "átnézendő"-nek jelöltünk. Vagyis át kell majd nézni. Ez értelemszerűen a tuti_coverage-el* együtt adja ki a 100%-ot.
+- Az "átnézendő"-nek jelölt előirányzatok mekkora arányban helyesek. Ez a felkínált tipp pontossága, nyilván hasznos ha helyes, de nem létfeltétel, mert valaki úgyis át kell nézze.
+
+A valóságban pedig ezek az értékek (egy ponton túl) csak egymás kárára javíthatók. Ha növelni akarom a modell pontosságát, és érzékenyebbre állítom a modellt, azzal csökkentem a "helyesként számontartott" előirányzatok arányát, így több előirányzatot kell manuálisan átnézni.
+
+Tehát a cél az, hogy megtaláljuk azt az ideális arányt, ahol még elég pontosak a kiválasztott funkciók, de nincs túl sok manuális munka az ellenőrzéssel.
+
+Példákkal, hogy ezeknek a mérőszámoknak miért van jelentőssége:
+- Lehet például egy olyan képzeletbeli megoldás, amiben a mindenre azt a jelölést teszi a modell, hogy "átnézendő" ezzel a modell által átnézett előirányzatok (0 db) mind helyes lesz.
+- Lehet az is, hogy a modell mindent megold magától, és nem kell manuálisan átnézni semmit, de a megoldások pontatlanok lesznek.
+- Nyilván az ideális az lenne, ha egyszerre lenne tökéletes a megoldás és minden előirányzatot lefedne, de ez gyakorlatban nem megvalósítható. Úgyhogy be kell érnünk egy gyengébb megoldással azt viszont mi döntjük el, hogy melyik szempontból legyen jobb.
+
