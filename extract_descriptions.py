@@ -32,12 +32,12 @@ logger.info(f"using api key: ***{api_key[-5:]}")
 EXCEL_FILE = "adatok/koltsegvetesek.xlsx"
 PROCESSED_DIR = "indoklasok/feldolgozott"
 EXTRACTED_DIR = "indoklasok/szovegek"
-MODEL_NAME = "gemini-2.5-flash-preview-05-20"
+MODEL_NAME = "gemini-2.5-flash-lite-preview-06-17"
 YEARS = [
     # "2016",
     # "2017",
-    "2018",
-    # "2019",
+    # "2018",
+    "2019",
     # "2020",
     # "2021",
 ]
@@ -334,8 +334,7 @@ def extract_text_from_section(
 def process_dataframe(df: pd.DataFrame) -> Tuple[list[str], dict[str, str]]:
     """Process DataFrame to create FIDs and name mappings."""
     # Fill NaN values
-    for col in ["CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]:
-        df[col].fillna(0, inplace=True)
+    df = df.fillna({"CIM": 0, "ALCIM": 0, "JOGCIM1": 0, "JOGCIM2": 0})
 
     df = df[df["FEJEZET"].notna()]
 
