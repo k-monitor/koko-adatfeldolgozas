@@ -78,12 +78,12 @@ Probléma, amit meg szeretnénk oldani: számos költségvetési előirányzatho
 
 ## előkövetelmények
 
-- Python 3.13
+- Python 3 (3.13 verzión tesztelve)
 - Költségvetési adatok táblázat
 
 ### Költségvetési adatok táblázat
 
-Ez egy `.xlsx` kiterjesztésű excel fájl kell legyen (`adatok/koltsegvetesek.xlsx`). A munkalapok nevét az évszámok szerint kell elnevezni (pl.: `2016`, `2020`). A lapok tartalmazzák az előirányzatok listáját a szükséges adatokkal. A táblázat első sora a egy fejléc kell legyen, ami tartalmazza a szükséges oszlopneveket. A következő sortól pedig az adatoknak kell következni.
+Ez egy `.xlsx` kiterjesztésű excel fájl kell legyen (`adatok/koltsegvetesek.xlsx`). A munkalapok nevét az évszámok szerint kell elnevezni (pl.: `2016`, `2020`). A lapok tartalmazzák az előirányzatok listáját a szükséges adatokkal. A táblázat első sora a fejléc kell, hogy legyen, ami tartalmazza a szükséges oszlopneveket. A következő sortól pedig az adatoknak kell következni.
 
 Oszlopok (ezen kívül más oszlopok is megengedettek):
 - `FEJEZET` *
@@ -105,7 +105,9 @@ Oszlopok (ezen kívül más oszlopok is megengedettek):
   - `Felhalmozási bevétel` ***
 
 * kötelező oszlop
+
 ** kötelező 2016 és korábbi költségvetések esetén
+
 *** kötelező 2016 utáni költségvetések esetén
 
 ## python környezet felállítása (opcionális)
@@ -120,7 +122,7 @@ Aktiválás (minden futtatás előtt):
 source .venv/bin/activate
 ```
 
-## telepítés
+## függőségek telepítése
 
 ```bash
 pip install -r requirements.txt
@@ -273,7 +275,7 @@ Ez létrehozza a `matches_df_{évszám}.xlsx` fájlt, ebben lesznek az oszlopok:
 - `indoklas`: indoklás szövege
 - `predicted_function`: a modell által tippelt funkciókód
 - `prediction_function`: a tippeléshez használt módszer
-- `method_sureness`: a módszer melyik csoportba tartozik (`helyesnek elfogadott` vagy `átnézendő`)
+- `method_sureness`: a használt módszer melyik csoportba tartozik (`helyesnek elfogadott` vagy `átnézendő`)
 - `needs_review`: át kell nézni embernek a tippet
 - `{módszerek}`: módszerek tippjei (ez több oszlop)
 - `sum`: az előirányzat kiadási összegei
@@ -281,6 +283,15 @@ Ez létrehozza a `matches_df_{évszám}.xlsx` fájlt, ebben lesznek az oszlopok:
 - `is_correct`: a true_function egyezik-e a predicted_function-nel, true/false érték
 
 A futás közben létrejön egy `n2f.json` fájl is, amit korábbi előrányzat nevek és funkciókódok összekötésére használ a modell.
+
+Ahhoz, hogy módosítsuk a kiválasztott évet, a TEST_YEAR változót kell átírni.
+
+A tanításhoz/kereséshez használt évek listáját pedig a következő kódrész átírásával lehet elérni:
+```python
+    df_old_list = []
+    for year in range(2016, 2020):
+        df_old_list.append(datasets[year])
+```
 
 ### Módszerek
 
