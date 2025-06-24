@@ -1,4 +1,7 @@
 from typing import List
+import os  # Add missing import
+import PyPDF2  # Add missing import
+import logging  # Add logging import
 from pdfminer.high_level import (
     extract_pages,
     extract_text,
@@ -6,6 +9,15 @@ from pdfminer.high_level import (
 from pdfminer.layout import LTTextContainer, LAParams  # Import LAParams
 from pdfminer.pdfparser import PDFSyntaxError  # Specific pdfminer error
 from pdfminer.psparser import PSSyntaxError  # Another potential parsing error
+
+# Silence pdfminer warnings
+logging.getLogger('pdfminer').setLevel(logging.ERROR)
+
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename by removing invalid characters."""
+    import re
+    return re.sub(r'[<>:"/\\|?*]', '_', filename)
 
 
 def split_pdf_by_sections(pdf_path, output_dir, section_summary, year_prefix):
@@ -107,7 +119,7 @@ def extract_text_by_page(pdf_path: str) -> List[str]:
     return pages_text
 
 
-def get_page_lenth(pdf_path: str) -> int:
+def get_page_length(pdf_path: str) -> int:  # Fixed typo: was get_page_lenth
     """
     Returns the number of pages in a PDF file.
 
@@ -123,6 +135,12 @@ def get_page_lenth(pdf_path: str) -> int:
     except Exception as e:
         print(f"Error getting page count for {pdf_path}: {e}")
         return 0
+
+
+# Keep old function name for backward compatibility
+def get_page_lenth(pdf_path: str) -> int:
+    """Deprecated: Use get_page_length instead."""
+    return get_page_length(pdf_path)
 
 
 if __name__ == "__main__":

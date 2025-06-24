@@ -129,3 +129,4 @@ wcwidth==0.2.13
 websockets==15.0.1
 widgetsnbextension==4.0.14
 xgboost==3.0.0
+nltk

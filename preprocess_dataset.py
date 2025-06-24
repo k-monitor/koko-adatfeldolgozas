@@ -2,6 +2,70 @@ from pandas.core.frame import DataFrame
 import pandas as pd
 import os
 
+excel_file = "adatok/koltsegvetesek.xlsx"
+
+years = [
+    {
+        "excel_sheet": "2016",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Kiadás",
+            "income": "Bevétel",
+            "support": "Támogatás",
+        },
+    },
+    {
+        "excel_sheet": "2017",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2018",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2019",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2020",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
+        "excel_sheet": "2021",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+]
+
 
 def to_numbers(row):
     """
@@ -77,13 +141,15 @@ def get_deduplicated_rows(df):
                         # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
                             context_established_by_current_sparse_row = True
-                    else: # current_row_sparse[i] is 0
+                    else:  # current_row_sparse[i] is 0
                         # Inherit from prev_filled_row as context hasn't changed at this point.
                         new_filled_row[i] = prev_filled_row[i]
-        
+
         filled_rows.append(new_filled_row)
-        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
-    
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
     print("Filled rows:")
     print(filled_rows[:10])  # Print first 10 for debugging
 
@@ -123,77 +189,6 @@ def get_deduplicated_rows(df):
     return str_rows
 
 
-excel_file = "xlsx/Elfogadott költségvetések.xlsx"
-
-years = [
-    {
-        "excel_sheet": "2016",
-        "pdf_file": "javaslatok/2016 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "NEV",
-            "spending": "Kiadás",
-            "income": "Bevétel",
-            "support": "Támogatás",
-        },
-    },
-    {
-        "excel_sheet": "2017",
-        "pdf_file": "javaslatok/2017 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2018",
-        "pdf_file": "javaslatok/2018 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2019",
-        "pdf_file": "javaslatok/2019 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2020",
-        "pdf_file": "javaslatok/2020 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-    {
-        "excel_sheet": "2021",
-        "pdf_file": "javaslatok/2021 összefűzött javaslat.pdf",
-        "columns": {
-            "name": "MEGNEVEZÉS",
-            "spending": "Működési kiadás",
-            "income": "Működési bevétel",
-            "accumulated_spending": "Felhalmozási kiadás",
-            "accumulated_income": "Felhalmozási bevétel",
-        },
-    },
-]
-
-
 def convert_float(value):
     value = str(value).replace(",", ".").replace(" ", "")
     return float(value) if value else 0.0
@@ -204,8 +199,6 @@ for year in years:
     name_column = year["columns"]["name"]
 
     df = pd.read_excel(excel_file, sheet_name=excel_sheet, dtype={"ÁHT-T": str})
-    df.columns = df.iloc[0]
-    df = df[1:]
     df = df[df["FEJEZET"].notna()]
 
     df["spending"] = df[year["columns"]["spending"]].apply(convert_float).astype(float)
@@ -240,10 +233,7 @@ for year in years:
         df["ÁHT-T"] = None
 
     print(df.head(10))
-    df["CIM"].fillna(0, inplace=True)
-    df["ALCIM"].fillna(0, inplace=True)
-    df["JOGCIM1"].fillna(0, inplace=True)
-    df["JOGCIM2"].fillna(0, inplace=True)
+    df = df.fillna({"CIM": 0, "ALCIM": 0, "JOGCIM1": 0, "JOGCIM2": 0})
 
     numbered_rows = [
         to_numbers(row)
@@ -280,13 +270,15 @@ for year in years:
                         # Check if this non-zero value differs from prev_filled_row, thus changing context.
                         if prev_filled_row[i] != current_row_sparse[i]:
                             context_established_by_current_sparse_row = True
-                    else: # current_row_sparse[i] is 0
+                    else:  # current_row_sparse[i] is 0
                         # Inherit from prev_filled_row as context hasn't changed at this point.
                         new_filled_row[i] = prev_filled_row[i]
-        
+
         filled_rows.append(new_filled_row)
-        prev_filled_row = new_filled_row # Update prev_filled_row for the next iteration
-    
+        prev_filled_row = (
+            new_filled_row  # Update prev_filled_row for the next iteration
+        )
+
     print("Filled rows:")
     print(filled_rows[:10])  # Print first 10 for debugging
 
@@ -320,7 +312,7 @@ for year in years:
         lambda x: isinstance(x, str) and x.strip() == ""
     )
     print(f"Nulls before: {functions_null_mask.sum()}")
-    df["function"][functions_null_mask] = df["fid"][functions_null_mask].apply(
+    df.loc[functions_null_mask, "function"] = df.loc[functions_null_mask, "fid"].apply(
         lambda x: find_closest_function(functions, x)
     )
     functions_null_mask = df["function"].apply(
@@ -334,13 +326,22 @@ for year in years:
         .apply(
             lambda x: x.iloc[0, 0].split(" ")[0]
             + " "
-            + " ".join(x.iloc[0, 0].split(" ")[1:]).title()
+            + " ".join(x.iloc[0, 0].split(" ")[1:]).title(),
+            include_groups=False
         )
     )
     section_names.index = section_names.index.astype(int).astype(str)
 
     deduplicated_rows = get_deduplicated_rows(df)
     df = df[df["fid"].isin(deduplicated_rows)]
+
+    def not_top_fid(row_fid):
+        for irow in df.to_dict(orient="records"):
+            if irow["fid"].startswith(row_fid + "."):
+                return False
+        return True
+
+    df = df[df["fid"].apply(not_top_fid)]
 
     # sum the values in the columns 'spending', 'income', 'support', 'accumulated_spending', 'accumulated_income'
     # for other columns take the first value
@@ -375,31 +376,15 @@ for year in years:
         ),
     ).reset_index(drop=True)
 
-    # ahtts = get_functions(df, column="ÁHT-T")
-    # print(f"Functions: {len(ahtts)}")
-    # print(f"ÁHT-T: {df['ÁHT-T'].head(10)}")
-    # ahtts_null_mask = df["ÁHT-T"].apply(
-    #     lambda x: not x
-    #     or (isinstance(x, str) and x.strip() == "NaN")
-    #     or (type(x) == float and math.isnan(x))
-    # )
-    # print(f"ÁHT-T before: {ahtts_null_mask.sum()}")
-
-    # df["ÁHT-T"][ahtts_null_mask] = df["fid"][ahtts_null_mask].apply(
-    #     lambda x: find_closest_function(ahtts, x)
-    # )
-    # ahtts_null_mask = df["ÁHT-T"].apply(
-    #     lambda x: not x
-    #     or (isinstance(x, str) and x.strip() == "NaN")
-    #     or (type(x) == float and math.isnan(x))
-    # )
-    # print(f"ÁHT-T after: {ahtts_null_mask.sum()}")
-    # df["ÁHT-T"] = df["ÁHT-T"].astype(str).str.replace(r"\.0$", "", regex=True)
-
     df["fname"] = df["fid"].apply(lambda x: section_names.loc[x.split(".")[0]])
 
-    if f"descriptions_{excel_sheet}.csv" in os.listdir():
-        df_indoklas = pd.read_csv(f"descriptions_{excel_sheet}.csv", index_col=0)
+    if os.path.isfile(f"indoklasok/szovegek/{excel_sheet}.csv"):
+        df_indoklas = pd.read_csv(
+            f"indoklasok/szovegek/{excel_sheet}.csv",
+            index_col=0,
+        )
+        df_indoklas["fid"] = df_indoklas.index.astype(str)
+        df_indoklas["indoklas"] = df_indoklas["text"].astype(str)
         df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
     else:
         df_merged = df.copy()
@@ -440,17 +425,18 @@ for year in years:
         ]
     ]
 
+    os.makedirs("dataset", exist_ok=True)
+
     dataset.to_csv(
-        f"dataset_{excel_sheet}.csv",
+        f"dataset/{excel_sheet}.csv",
         index=False,
         sep=";",
         encoding="utf-8-sig",
     )
 
     dataset.to_json(
-        f"dataset_{excel_sheet}.json",
+        f"dataset/{excel_sheet}.json",
         orient="records",
         lines=True,
         force_ascii=False,
     )
-    print(f"Dataset for {year['pdf_file']} created.")
