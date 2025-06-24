@@ -17,7 +17,7 @@ from generate_name_indexes import generate_name_indexes
 # Load environment variables
 load_dotenv(dotenv_path=".env")
 
-TEST_YEAR = 2017
+TEST_YEAR = 2021
 
 # Constants
 POSSIBLE_FUNCTIONS = [
@@ -560,12 +560,12 @@ class ResultAnalyzer:
 
         # Analyze precise methods
         print("=== PRECISE METHODS ===")
-        ResultAnalyzer._analyze_method_group(matches_df, PRECISE_METHODS)
+        precise_stats = ResultAnalyzer._analyze_method_group(matches_df, PRECISE_METHODS)
         print()
 
         # Analyze imprecise methods (excluding cases covered by precise methods)
         print("=== IMPRECISE METHODS ===")
-        ResultAnalyzer._analyze_method_group(
+        imprecise_stats = ResultAnalyzer._analyze_method_group(
             matches_df, IMPRECISE_METHODS, exclude_methods=PRECISE_METHODS
         )
         print()
@@ -573,6 +573,7 @@ class ResultAnalyzer:
         # Individual method analysis
         print("=== INDIVIDUAL METHOD ANALYSIS ===")
         all_methods = PRECISE_METHODS + IMPRECISE_METHODS
+        method_stats = {}
 
         for method in all_methods:
             mask = matches_df[method].notnull()
@@ -589,10 +590,43 @@ class ResultAnalyzer:
                 )
                 sum_coverage = matches_df[mask]["sum"].sum() / matches_df["sum"].sum()
 
+                method_stats[method] = {
+                    'accuracy': accuracy,
+                    'coverage': coverage,
+                    'sum_accuracy': sum_accuracy,
+                    'sum_coverage': sum_coverage
+                }
+
                 print(f"{method}: Accuracy = {accuracy:.4f}, Coverage = {coverage:.4f}")
                 print(
                     f"  Sum Accuracy = {sum_accuracy:.4f}, Sum Coverage = {sum_coverage:.4f}"
                 )
+            else:
+                method_stats[method] = {
+                    'accuracy': 0,
+                    'coverage': 0,
+                    'sum_accuracy': 0,
+                    'sum_coverage': 0
+                }
+
+        # Print formatted output for easy copying to spreadsheet
+        print("\n=== FORMATTED OUTPUT ===")
+        print(f"year\t{TEST_YEAR}")
+        print(f"precise accuracy\t{precise_stats['accuracy']:.4f}")
+        print(f"precise coverage\t{precise_stats['coverage']:.4f}")
+        print(f"precise sum accuracy\t{precise_stats['sum_accuracy']:.4f}")
+        print(f"precise sum coverage\t{precise_stats['sum_coverage']:.4f}")
+        print(f"imprecise accuracy\t{imprecise_stats['accuracy']:.4f}")
+        print(f"imprecise coverage\t{imprecise_stats['coverage']:.4f}")
+        print(f"imprecise sum accuracy\t{imprecise_stats['sum_accuracy']:.4f}")
+        print(f"imprecise sum coverage\t{imprecise_stats['sum_coverage']:.4f}")
+        print()
+        for method in all_methods:
+            print(f"{method} accuracy\t{method_stats[method]['accuracy']:.4f}")
+            print(f"{method} coverage\t{method_stats[method]['coverage']:.4f}")
+            print(f"{method} sum accuracy\t{method_stats[method]['sum_accuracy']:.4f}")
+            print(f"{method} sum coverage\t{method_stats[method]['sum_coverage']:.4f}")
+
 
     @staticmethod
     def _analyze_method_group(matches_df, methods, exclude_methods=None):
@@ -619,7 +653,12 @@ class ResultAnalyzer:
 
         if group_mask.sum() == 0:
             print("No predictions from this method group")
-            return
+            return {
+                'accuracy': 0,
+                'coverage': 0,
+                'sum_accuracy': 0,
+                'sum_coverage': 0
+            }
 
         # Calculate group-level accuracy - only for cases in the final group mask
         group_correct = pd.Series(False, index=matches_df.index)
@@ -650,6 +689,13 @@ class ResultAnalyzer:
         print(f"Group Coverage: {group_coverage:.4f}")
         print(f"Group Sum Accuracy: {group_sum_accuracy:.4f}")
         print(f"Group Sum Coverage: {group_sum_coverage:.4f}")
+        
+        return {
+            'accuracy': group_accuracy,
+            'coverage': group_coverage,
+            'sum_accuracy': group_sum_accuracy,
+            'sum_coverage': group_sum_coverage
+        }
 
 
 def main():
@@ -658,7 +704,7 @@ def main():
     datasets = DataLoader.load_budget_data()
 
     df_old_list = []
-    for year in range(2016, TEST_YEAR):
+    for year in range(2016, 2020):
         df_old_list.append(datasets[year])
     df_old_list.reverse()  # this helps to use the most recent data first
     df_old = pd.concat(df_old_list, ignore_index=True)
