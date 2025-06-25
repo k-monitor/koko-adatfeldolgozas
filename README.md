@@ -364,14 +364,14 @@ Példákkal, hogy ezeknek a mérőszámoknak miért van jelentőssége:
 
 | year | 2017 | 2018 | 2019 | 2020 | 2021 |
 | :---- | :---- | :---- | :---- | :---- | :---- |
-| **precise accuracy** | 0.9772 | 0.9918 | 0.9819 | 0 | 0 |
-| precise coverage | 0.8677 | 0.9009 | 0.92 | 0.8619 | 0.7246 |
-| **precise sum accuracy** | 0.989 | 0.9928 | 0.9973 | 0 | 0 |
-| precise sum coverage | 0.9596 | 0.987 | 0.9796 | 0.9212 | 0.7431 |
-| **imprecise accuracy** | 0.7323 | 0.4681 | 0.6234 | 0 | 0 |
-| imprecise coverage | 1 | 1 | 1 | 1 | 1 |
-| **imprecise sum accuracy** | 0.6486 | 0.3978 | 0.5031 | 0 | 0 |
-| imprecise sum coverage | 1 | 1 | 1 | 1 | 1 |
+| **helyesként számontartott accuracy** | 0.9772 | 0.9918 | 0.9819 | 0 | 0 |
+| helyesként számontartott coverage | 0.8677 | 0.9009 | 0.92 | 0.8619 | 0.7246 |
+| **helyesként számontartott sum accuracy** | 0.989 | 0.9928 | 0.9973 | 0 | 0 |
+| helyesként számontartott sum coverage | 0.9596 | 0.987 | 0.9796 | 0.9212 | 0.7431 |
+| **átnézendő accuracy** | 0.7323 | 0.4681 | 0.6234 | 0 | 0 |
+| átnézendő coverage | 1 | 1 | 1 | 1 | 1 |
+| **átnézendő sum accuracy** | 0.6486 | 0.3978 | 0.5031 | 0 | 0 |
+| átnézendő sum coverage | 1 | 1 | 1 | 1 | 1 |
 |  |  |  |  |  |  |
 | **ahtt\_exact\_match accuracy** | 0.9865 | 0.9965 | 0.984 | 0 | 0 |
 | ahtt\_exact\_match coverage | 0.849 | 0.8946 | 0.9096 | 0 | 0 |
