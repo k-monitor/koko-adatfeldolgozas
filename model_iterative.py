@@ -617,9 +617,9 @@ class ResultAnalyzer:
         print(f"helyesként számontartott sum accuracy\t{precise_stats['sum_accuracy']:.4f}")
         print(f"helyesként számontartott sum coverage\t{precise_stats['sum_coverage']:.4f}")
         print(f"átnézendő accuracy\t{imprecise_stats['accuracy']:.4f}")
-        print(f"átnézendő coverage\t{imprecise_stats['coverage']:.4f}")
+        print(f"átnézendő coverage\t{1-precise_stats['coverage']:.4f}")
         print(f"átnézendő sum accuracy\t{imprecise_stats['sum_accuracy']:.4f}")
-        print(f"átnézendő sum coverage\t{imprecise_stats['sum_coverage']:.4f}")
+        print(f"átnézendő sum coverage\t{1-precise_stats['sum_coverage']:.4f}")
         print()
         for method in all_methods:
             print(f"{method} accuracy\t{method_stats[method]['accuracy']:.4f}")
