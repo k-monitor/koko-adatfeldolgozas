@@ -17,7 +17,7 @@ from generate_name_indexes import generate_name_indexes
 # Load environment variables
 load_dotenv(dotenv_path=".env")
 
-TEST_YEAR = 2021
+TEST_YEAR = 2017
 
 # Constants
 POSSIBLE_FUNCTIONS = [
@@ -704,7 +704,7 @@ def main():
     datasets = DataLoader.load_budget_data()
 
     df_old_list = []
-    for year in range(2016, 2020):
+    for year in range(2016, min(TEST_YEAR, 2020)):
         df_old_list.append(datasets[year])
     df_old_list.reverse()  # this helps to use the most recent data first
     df_old = pd.concat(df_old_list, ignore_index=True)
