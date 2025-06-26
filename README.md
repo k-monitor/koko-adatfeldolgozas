@@ -364,44 +364,44 @@ Példákkal, hogy ezeknek a mérőszámoknak miért van jelentőssége:
 
 | year | 2017 | 2018 | 2019 | 2020 | 2021 |
 | :---- | :---- | :---- | :---- | :---- | :---- |
-| **helyesként számontartott accuracy** | 0.9772 | 0.9918 | 0.9819 | 0 | 0 |
-| helyesként számontartott coverage | 0.8677 | 0.9009 | 0.92 | 0.8619 | 0.7246 |
-| **helyesként számontartott sum accuracy** | 0.989 | 0.9928 | 0.9973 | 0 | 0 |
-| helyesként számontartott sum coverage | 0.9596 | 0.987 | 0.9796 | 0.9212 | 0.7431 |
-| **átnézendő accuracy** | 0.7323 | 0.4681 | 0.6234 | 0 | 0 |
-| átnézendő coverage | 1 | 1 | 1 | 1 | 1 |
-| **átnézendő sum accuracy** | 0.6486 | 0.3978 | 0.5031 | 0 | 0 |
-| átnézendő sum coverage | 1 | 1 | 1 | 1 | 1 |
+| helyesként számontartott accuracy | 0.9772 | 0.9918 | 0.9819 | 0 | 0 |
+| helyesként számontartott coverage | 0.8677 | 0.9009 | 0.92 | 0.8619 | 0.7299 |
+| helyesként számontartott sum accuracy | 0.989 | 0.9928 | 0.9973 | 0 | 0 |
+| helyesként számontartott sum coverage | 0.9596 | 0.987 | 0.9796 | 0.9212 | 0.7513 |
+| átnézendő accuracy | 0.7323 | 0.4681 | 0.6234 | 0 | 0 |
+| átnézendő coverage | 0.1323 | 0.0991 | 0.08 | 0.1381 | 0.2701 |
+| átnézendő sum accuracy | 0.6486 | 0.3978 | 0.5031 | 0 | 0 |
+| átnézendő sum coverage | 0.0404 | 0.013 | 0.0204 | 0.0788 | 0.2487 |
 |  |  |  |  |  |  |
-| **ahtt\_exact\_match accuracy** | 0.9865 | 0.9965 | 0.984 | 0 | 0 |
+| ahtt\_exact\_match accuracy | 0.9865 | 0.9965 | 0.984 | 0 | 0 |
 | ahtt\_exact\_match coverage | 0.849 | 0.8946 | 0.9096 | 0 | 0 |
-| **ahtt\_exact\_match sum accuracy** | 0.991 | 0.9977 | 0.9974 | 0 | 0 |
+| ahtt\_exact\_match sum accuracy | 0.991 | 0.9977 | 0.9974 | 0 | 0 |
 | ahtt\_exact\_match sum coverage | 0.9433 | 0.9777 | 0.979 | 0 | 0 |
-| **name\_exact\_match accuracy** | 0.9744 | 0.9856 | 0.9731 | 0 | 0 |
-| name\_exact\_match coverage | 0.8125 | 0.8757 | 0.8898 | 0.8191 | 0.5596 |
-| **name\_exact\_match sum accuracy** | 0.9897 | 0.9968 | 0.9967 | 0 | 0 |
-| name\_exact\_match sum coverage | 0.9007 | 0.9357 | 0.9709 | 0.8913 | 0.6499 |
-| **fid\_exact\_match accuracy** | 0.9832 | 0.9917 | 0.9723 | 0 | 0 |
-| fid\_exact\_match coverage | 0.7427 | 0.8851 | 0.8264 | 0.7704 | 0.5684 |
-| **fid\_exact\_match sum accuracy** | 0.9946 | 0.9927 | 0.9838 | 0 | 0 |
-| fid\_exact\_match sum coverage | 0.8655 | 0.9705 | 0.9138 | 0.8796 | 0.5496 |
-| **name\_fuzzy\_match accuracy** | 0.9745 | 0.9856 | 0.9732 | 0 | 0 |
-| name\_fuzzy\_match coverage | 0.8156 | 0.8767 | 0.8929 | 0.82 | 0.6439 |
-| **name\_fuzzy\_match sum accuracy** | 0.9897 | 0.9968 | 0.9967 | 0 | 0 |
-| name\_fuzzy\_match sum coverage | 0.901 | 0.939 | 0.973 | 0.8913 | 0.7112 |
-| **fid\_fuzzy\_match accuracy** | 0.6632 | 0.6562 | 0.6783 | 0 | 0 |
-| fid\_fuzzy\_match coverage | 0.9031 | 0.9779 | 0.921 | 0.8589 | 0.7544 |
-| **fid\_fuzzy\_match sum accuracy** | 0.6375 | 0.6291 | 0.6392 | 0 | 0 |
-| fid\_fuzzy\_match sum coverage | 0.9107 | 0.9921 | 0.9543 | 0.9214 | 0.6533 |
-| **indoklas\_fuzzy accuracy** | 0.9555 | 0.9769 | 0.9716 | 0 | 0 |
-| indoklas\_fuzzy coverage | 0.726 | 0.7313 | 0.6954 | 0 | 0 |
-| **indoklas\_fuzzy sum accuracy** | 0.9598 | 0.9843 | 0.976 | 0 | 0 |
-| indoklas\_fuzzy sum coverage | 0.6295 | 0.618 | 0.6969 | 0 | 0 |
-| **name\_fuzzy\_fallback accuracy** | 0.8667 | 0.9041 | 0.9096 | 0 | 0 |
+| name\_exact\_match accuracy | 0.9744 | 0.9856 | 0.9731 | 0 | 0 |
+| name\_exact\_match coverage | 0.8125 | 0.8757 | 0.8898 | 0.8191 | 0.5514 |
+| name\_exact\_match sum accuracy | 0.9897 | 0.9968 | 0.9967 | 0 | 0 |
+| name\_exact\_match sum coverage | 0.9007 | 0.9357 | 0.9709 | 0.8913 | 0.6511 |
+| fid\_exact\_match accuracy | 0.9832 | 0.9917 | 0.9723 | 0 | 0 |
+| fid\_exact\_match coverage | 0.7427 | 0.8851 | 0.8264 | 0.7704 | 0.5772 |
+| fid\_exact\_match sum accuracy | 0.9946 | 0.9927 | 0.9838 | 0 | 0 |
+| fid\_exact\_match sum coverage | 0.8655 | 0.9705 | 0.9138 | 0.8796 | 0.5652 |
+| name\_fuzzy\_match accuracy | 0.9745 | 0.9856 | 0.9732 | 0 | 0 |
+| name\_fuzzy\_match coverage | 0.8156 | 0.8767 | 0.8929 | 0.82 | 0.6367 |
+| name\_fuzzy\_match sum accuracy | 0.9897 | 0.9968 | 0.9967 | 0 | 0 |
+| name\_fuzzy\_match sum coverage | 0.901 | 0.939 | 0.973 | 0.8913 | 0.7105 |
+| fid\_fuzzy\_match accuracy | 0.6632 | 0.6562 | 0.6783 | 0 | 0 |
+| fid\_fuzzy\_match coverage | 0.9031 | 0.9779 | 0.921 | 0.8589 | 0.7749 |
+| fid\_fuzzy\_match sum accuracy | 0.6375 | 0.6291 | 0.6392 | 0 | 0 |
+| fid\_fuzzy\_match sum coverage | 0.9107 | 0.9921 | 0.9543 | 0.9214 | 0.6671 |
+| indoklas\_fuzzy accuracy | 0.9555 | 0.9769 | 0.9716 | 0 | 0 |
+| indoklas\_fuzzy coverage | 0.726 | 0.7313 | 0.6954 | 0.6274 | 0.59 |
+| indoklas\_fuzzy sum accuracy | 0.9598 | 0.9843 | 0.976 | 0 | 0 |
+| indoklas\_fuzzy sum coverage | 0.6295 | 0.618 | 0.6969 | 0.55 | 0.6251 |
+| name\_fuzzy\_fallback accuracy | 0.8667 | 0.9041 | 0.9096 | 0 | 0 |
 | name\_fuzzy\_fallback coverage | 1 | 1 | 1 | 1 | 1 |
-| **name\_fuzzy\_fallback sum accuracy** | 0.9485 | 0.9794 | 0.9797 | 0 | 0 |
+| name\_fuzzy\_fallback sum accuracy | 0.9485 | 0.9794 | 0.9797 | 0 | 0 |
 | name\_fuzzy\_fallback sum coverage | 1 | 1 | 1 | 1 | 1 |
-| **ctfidf accuracy** | 0.8295 | 0.8472 | 0.8356 | 0 | 0 |
-| ctfidf coverage | 0.9531 | 0.9104 | 0.9293 | 0 | 0 |
-| **ctfidf sum accuracy** | 0.6905 | 0.9086 | 0.8798 | 0 | 0 |
-| ctfidf sum coverage | 0.9183 | 0.8659 | 0.8861 | 0 | 0 |
+| ctfidf accuracy | 0.8295 | 0.8472 | 0.8356 | 0 | 0 |
+| ctfidf coverage | 0.9531 | 0.9104 | 0.9293 | 0.9319 | 0.9775 |
+| ctfidf sum accuracy | 0.6905 | 0.9086 | 0.8798 | 0 | 0 |
+| ctfidf sum coverage | 0.9183 | 0.8659 | 0.8861 | 0.9255 | 0.9834 |
