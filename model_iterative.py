@@ -17,8 +17,6 @@ from generate_name_indexes import generate_name_indexes
 # Load environment variables
 load_dotenv(dotenv_path=".env")
 
-TEST_YEAR = 2017
-
 # Constants
 POSSIBLE_FUNCTIONS = [
     "F01.a",
@@ -85,12 +83,12 @@ PRECISE_METHODS = [
     "name_exact_match",
     "fid_exact_match",
     "name_fuzzy_match",
+    "indoklas_fuzzy",
+    "ctfidf",
 ]
 IMPRECISE_METHODS = [
     "fid_fuzzy_match",
-    "indoklas_fuzzy",
     "name_fuzzy_fallback",
-    "ctfidf",
 ]
 
 
@@ -128,7 +126,7 @@ class DataLoader:
     def load_budget_data():
         """Load all budget datasets."""
         datasets = {}
-        for year in range(2016, 2022):
+        for year in list(range(2016, 2023)) + [2024, 2025, 2026]:
             df = pd.read_json(f"dataset/{year}.json", lines=True)
             datasets[year] = DataLoader.preprocess_df(df)
         return datasets
@@ -311,6 +309,13 @@ class FunctionClassifier:
         vector = self.ctfidf_vectorizer.transform(count)
         distances = cosine_similarity(vector, self.ctfidf_matrix)
         prediction = np.argmax(distances, 1)
+        prediction_distance = distances[0][prediction[0]]
+        if len(prediction) == 0:
+            return None
+        # print(distances)
+        # print(prediction, prediction_distance)
+        if prediction_distance < 0.18:
+            return None
         return self.c2f(prediction[0])
 
     def get_sub_names(self, fid, year):
@@ -548,7 +553,7 @@ class ResultAnalyzer:
         )
 
     @staticmethod
-    def analyze_results(matches_df):
+    def analyze_results(matches_df, selected_year):
         """Analyze and print classification results."""
         matches_df["is_correct"] = (
             matches_df["predicted_function"] == matches_df["true_function"]
@@ -611,7 +616,7 @@ class ResultAnalyzer:
 
         # Print formatted output for easy copying to spreadsheet
         print("\n=== FORMATTED OUTPUT ===")
-        print(f"year\t{TEST_YEAR}")
+        print(f"year\t{selected_year}")
         print(f"helyesként számontartott accuracy\t{precise_stats['accuracy']:.4f}")
         print(f"helyesként számontartott coverage\t{precise_stats['coverage']:.4f}")
         print(f"helyesként számontartott sum accuracy\t{precise_stats['sum_accuracy']:.4f}")
@@ -698,18 +703,18 @@ class ResultAnalyzer:
         }
 
 
-def main():
+def main(selected_year):
     """Main execution function."""
     # Load data
     datasets = DataLoader.load_budget_data()
 
     df_old_list = []
-    for year in range(2016, min(TEST_YEAR, 2020)):
+    for year in range(2016, min(selected_year, 2020)):
         df_old_list.append(datasets[year])
     df_old_list.reverse()  # this helps to use the most recent data first
     df_old = pd.concat(df_old_list, ignore_index=True)
 
-    df_new = datasets[TEST_YEAR]
+    df_new = datasets[selected_year]
 
     # Filter data
     df_new = df_new[df_new["sum"] > 0]
@@ -742,13 +747,14 @@ def main():
     matches_df = ResultAnalyzer.create_matches_dataframe(detailed_predictions, y)
 
     # Analyze results
-    ResultAnalyzer.analyze_results(matches_df)
+    ResultAnalyzer.analyze_results(matches_df, selected_year)
 
     # Save results
-    matches_df.to_excel(f"matches_df_{TEST_YEAR}.xlsx", index=False)
+    matches_df.to_excel(f"matches_df_{selected_year}.xlsx", index=False)
 
     return matches_df
 
 
 if __name__ == "__main__":
-    matches_df = main()
+    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2025, 2026]:
+        matches_df = main(year)
