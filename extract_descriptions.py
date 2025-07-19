@@ -32,14 +32,19 @@ logger.info(f"using api key: ***{api_key[-5:]}")
 EXCEL_FILE = "adatok/koltsegvetesek.xlsx"
 PROCESSED_DIR = "indoklasok/feldolgozott"
 EXTRACTED_DIR = "indoklasok/szovegek"
-MODEL_NAME = "gemini-2.5-flash-lite-preview-06-17"
+MODEL_NAME = "gemini-2.5-flash"
 YEARS = [
     # "2016",
     # "2017",
     # "2018",
-    "2019",
+    # "2019",
     # "2020",
     # "2021",
+    # "2022",
+    # "2023",
+    # "2024",
+    # "2025",
+    "2026",
 ]
 MAX_PAGES_PER_SPLIT = 100
 MIN_TEXT_LENGTH = 80
@@ -417,7 +422,7 @@ def process_year(year: str) -> None:
 
         for title, section in tqdm(section_structures):
             section_number = from_roman_numeral(title.split(" ")[0].strip("."))
-            section_pdf_file = section["file_path"]
+            section_pdf_file = "indoklasok/feldolgozott/"+section["file_path"]
 
             try:
                 page_count = get_page_lenth(section_pdf_file)
