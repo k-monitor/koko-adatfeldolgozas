@@ -197,10 +197,10 @@ Előfeltételek:
 - **`.env` fájl vagy egyéb úton átadni a `GEMINI_API_KEY` környezeti változót**
 - **feldarabolt pdf fájlok és hozzájuk tartozó summary.json fájl az indoklasok/feldolgozott/{év} mappában**
 
-Hogy a feldarabolt pdf-ekből kinyerd a leírásokat, futtatnod kell az `extract_description.py` scriptet. Ennek az elején tudod megadni a feldolgozandó éveket a `YEARS` tömb szerkesztésével. Javasolt kikommentezni azokat az éveket, amik nem kellenek.
+Hogy a feldarabolt pdf-ekből kinyerd a leírásokat, futtatnod kell az `extract_descriptions.py` scriptet. Ennek az elején tudod megadni a feldolgozandó éveket a `YEARS` tömb szerkesztésével. Javasolt kikommentezni azokat az éveket, amik nem kellenek.
 
 ```bash
-python extract_description.py
+python extract_descriptions.py
 ```
 
 ## Adathalmaz előfeldolgozása
