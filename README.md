@@ -317,19 +317,21 @@ A tanításhoz/kereséshez használt évek listáját pedig a következő kódr�
 
 ### Módszerek egyesítése
 
-A módszerek jelenleg egymás után sorban következnek, ha egy módszer nem tudja besorolni az előirányzatot, akkor továbbadja a következőnek.
+Mindig minden módszer lefut és az eredményük eltárolásra kerül.
+
+A végén, amikor a funkciókódot kell megállapítani, akkor a következő sorrendben, az első helyesnek elfogadott tipp lesz a modell döntése (predicted_function).
 
 A prioritási sorrend: `ahtt_exact_match > name_exact_match > fid_exact_match > name_fuzzy_match > indoklas_fuzzy > fid_fuzzy_match > name_fuzzy_fallback > ctfidf`
 
-Nem minden módszer elég megbízható, ezért külÖn kezeljük azokat a tippeket, amikre jobb és külön, amikre kevésbé megbízható módszerrel jutottunk.
+Nem minden módszer elég megbízható, ezért külön kezeljük azokat a tippeket, amikre jobb és külön, amikre kevésbé megbízható módszerrel jutottunk.
 
-megbízható:
+megbízható (helyesnek elfogadott):
 - ahtt_exact_match
 - name_exact_match
 - fid_exact_match
 - name_fuzzy_match
 
-nem elég megbízható:
+nem elég megbízható (átnézendő):
 - fid_fuzzy_match
 - indoklas_fuzzy
 - name_fuzzy_fallback
