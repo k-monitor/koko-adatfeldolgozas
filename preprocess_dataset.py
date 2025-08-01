@@ -75,6 +75,16 @@ years = [
         },
     },
     {
+        "excel_sheet": "2023",
+        "columns": {
+            "name": "MEGNEVEZÉS",
+            "spending": "Működési kiadás",
+            "income": "Működési bevétel",
+            "accumulated_spending": "Felhalmozási kiadás",
+            "accumulated_income": "Felhalmozási bevétel",
+        },
+    },
+    {
         "excel_sheet": "2024",
         "columns": {
             "name": "MEGNEVEZÉS",
@@ -425,6 +435,8 @@ for year in years:
         )
         df_indoklas["fid"] = df_indoklas.index.astype(str)
         df_indoklas["indoklas"] = df_indoklas["text"].astype(str)
+        bad_explanations = ['Nincs indoklás', 'The justification']
+        df_indoklas = df_indoklas[~df_indoklas['indoklas'].str.contains('|'.join(bad_explanations), na=False)]
         df_merged: DataFrame = pd.merge(df, df_indoklas, on="fid", how="left")
     else:
         df_merged = df.copy()
@@ -465,16 +477,18 @@ for year in years:
         ]
     ]
 
+    dataset_deduplicated = dataset.drop_duplicates(subset=['fid'], keep="first")
+
     os.makedirs("dataset", exist_ok=True)
 
-    dataset.to_csv(
+    dataset_deduplicated.to_csv(
         f"dataset/{excel_sheet}.csv",
         index=False,
         sep=";",
         encoding="utf-8-sig",
     )
 
-    dataset.to_json(
+    dataset_deduplicated.to_json(
         f"dataset/{excel_sheet}.json",
         orient="records",
         lines=True,
