@@ -89,6 +89,7 @@ PRECISE_METHODS = [
 IMPRECISE_METHODS = [
     "fid_fuzzy_match",
     "name_fuzzy_fallback",
+    "ctfidf_atnezendo",
 ]
 
 
@@ -311,12 +312,10 @@ class FunctionClassifier:
         prediction = np.argmax(distances, 1)
         prediction_distance = distances[0][prediction[0]]
         if len(prediction) == 0:
-            return None
+            return None, 0
         # print(distances)
         # print(prediction, prediction_distance)
-        if prediction_distance < 0.18:
-            return None
-        return self.c2f(prediction[0])
+        return self.c2f(prediction[0]), prediction_distance
 
     def get_sub_names(self, fid, year):
         """Get sub-names for a given FID and year."""
@@ -342,6 +341,7 @@ class FunctionClassifier:
             "indoklas_fuzzy": None,
             "name_fuzzy_fallback": None,
             "ctfidf": None,
+            "ctfidf_atnezendo": None,
         }
 
         # 1. ÁHT-T exact match
@@ -363,8 +363,11 @@ class FunctionClassifier:
         method_matches["name_fuzzy"] = self._fuzzy_name_match(name, df_old)
 
         # 5. CTFIDF classification
+        ctfidf_distance = None
         if indoklas:
-            method_matches["ctfidf"] = self.classify_ctfidf(indoklas)
+            method_matches["ctfidf_atnezendo"], ctfidf_distance = self.classify_ctfidf(indoklas)
+            if ctfidf_distance >= 0.18:
+                method_matches["ctfidf"] = method_matches["ctfidf_atnezendo"]
 
         # 6. Fuzzy FID matching
         method_matches["fid_fuzzy"] = self._fuzzy_fid_match(fid, df_old)
@@ -377,7 +380,7 @@ class FunctionClassifier:
         # 8. Fallback name matching
         method_matches["name_fuzzy_fallback"] = self._fallback_name_match(name, df_old)
 
-        return {**method_matches, "oldrow": row.to_dict(), "predicted_function": None}
+        return {**method_matches, "oldrow": row.to_dict(), "predicted_function": None, "ctfidf_distance": ctfidf_distance}
 
     def _fuzzy_name_match(self, name, df_old):
         """Perform fuzzy name matching."""
@@ -496,6 +499,9 @@ class ResultAnalyzer:
             elif row["ctfidf"]:
                 row["predicted_function"] = row["ctfidf"]
                 row["prediction_function"] = "ctfidf"
+            elif row["ctfidf_atnezendo"]:
+                row["predicted_function"] = row["ctfidf_atnezendo"]
+                row["prediction_function"] = "ctfidf_atnezendo"
             elif row["indoklas_fuzzy"]:
                 row["predicted_function"] = row["indoklas_fuzzy"]
                 row["prediction_function"] = "indoklas_fuzzy"
@@ -544,10 +550,16 @@ class ResultAnalyzer:
                     lambda x: x["indoklas_fuzzy"]
                 ),
                 "ctfidf": detailed_predictions.apply(lambda x: x["ctfidf"]),
+                "ctfidf_atnezendo": detailed_predictions.apply(
+                    lambda x: x["ctfidf_atnezendo"]
+                ),
                 "name_fuzzy_fallback": detailed_predictions.apply(
                     lambda x: x["name_fuzzy_fallback"]
                 ),
                 "sum": detailed_predictions.apply(lambda x: x["oldrow"]["sum"]),
+                "ctfidf_similarity": detailed_predictions.apply(
+                    lambda x: x["ctfidf_distance"]
+                ),
                 "true_function": y,
             }
         )
@@ -756,5 +768,5 @@ def main(selected_year):
 
 
 if __name__ == "__main__":
-    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2025, 2026]:
+    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2024, 2025, 2026]:
         matches_df = main(year)
