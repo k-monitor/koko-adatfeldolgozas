@@ -13,6 +13,12 @@ from collections import defaultdict, Counter
 from dotenv import load_dotenv
 import nltk
 from generate_name_indexes import generate_name_indexes
+from zarszamadas.pdf_name_matcher import (
+    extract_text_from_pdf,
+    extract_names_by_function,
+    filter_names,
+    match_name_with_dataset,
+)
 
 # Load environment variables
 load_dotenv(dotenv_path=".env")
@@ -83,6 +89,7 @@ PRECISE_METHODS = [
     "name_exact_match",
     "fid_exact_match",
     "name_fuzzy_match",
+    "zarszam_name",
     "indoklas_fuzzy",
     "ctfidf",
 ]
@@ -92,6 +99,43 @@ IMPRECISE_METHODS = [
     "ctfidf_atnezendo",
 ]
 
+
+def get_zarszam_names(year):
+    pdf_path = f"zarszamok/{year}.pdf"
+    
+    print("PDF NAME MATCHER - EXAMPLE USAGE")
+    print("=" * 60)
+    
+    # Step 1: Extract text from PDF
+    print("1. Extracting text from PDF...")
+    text = extract_text_from_pdf(pdf_path)
+    if not text:
+        print("Error: Could not extract text from PDF")
+        return
+    print(f"   Extracted {len(text)} characters")
+    
+    # Step 2: Extract names by function
+    print("2. Extracting names by function...")
+    names_by_function = extract_names_by_function(text)
+    total_names = sum(len(names) for names in names_by_function.values())
+    print(f"   Extracted {total_names} names from {len(names_by_function)} functions")
+    
+    # Show sample results
+    if names_by_function:
+        print("   Sample functions:")
+        for i, (func_code, names) in enumerate(list(names_by_function.items())[:3]):
+            print(f"     {func_code}: {len(names)} names")
+            if names:
+                print(f"       Example: {names[0]}")
+    
+    # Step 3: Filter names
+    print("3. Filtering names...")
+    filtered_names, name_functions = filter_names(names_by_function, min_length=10)
+    filtered_total = sum(len(names) for names in filtered_names.values())
+    print(f"   Kept {filtered_total} names after filtering")
+
+    return filtered_names
+    
 
 class CTFIDFVectorizer(TfidfTransformer):
     """Custom TF-IDF vectorizer for class-based term frequency analysis."""
@@ -127,7 +171,7 @@ class DataLoader:
     def load_budget_data():
         """Load all budget datasets."""
         datasets = {}
-        for year in list(range(2016, 2023)) + [2024, 2025, 2026]:
+        for year in range(2016, 2026+1):
             df = pd.read_json(f"dataset/{year}.json", lines=True)
             datasets[year] = DataLoader.preprocess_df(df)
         return datasets
@@ -324,7 +368,7 @@ class FunctionClassifier:
         return "\n".join(sub_names["name"].tolist())
 
     def weighted_function_classifier(
-        self, row, df_old, tfidf_data, name_threshold=0.84, indoklas_threshold=0.45
+        self, row, df_old, tfidf_data, names_list, indoklas_threshold=0.45
     ):
         """Classify function using weighted approach."""
         name = row["name"]
@@ -342,6 +386,7 @@ class FunctionClassifier:
             "name_fuzzy_fallback": None,
             "ctfidf": None,
             "ctfidf_atnezendo": None,
+            "zarszam_name": None,
         }
 
         # 1. ÁHT-T exact match
@@ -379,6 +424,16 @@ class FunctionClassifier:
 
         # 8. Fallback name matching
         method_matches["name_fuzzy_fallback"] = self._fallback_name_match(name, df_old)
+
+        # 9. Zarszam names matching
+        if names_list:
+            for names_dict in reversed(names_list):
+                match_info = match_name_with_dataset(
+                    names_dict, row, similarity_threshold=0.9
+                )
+                if match_info and match_info["assigned_function"]:
+                    method_matches["zarszam_name"] = match_info["assigned_function"]
+
 
         return {**method_matches, "oldrow": row.to_dict(), "predicted_function": None, "ctfidf_distance": ctfidf_distance}
 
@@ -493,6 +548,9 @@ class ResultAnalyzer:
             elif row["name_fuzzy"]:
                 row["predicted_function"] = row["name_fuzzy"]
                 row["prediction_function"] = "name_fuzzy"
+            elif row["zarszam_name"]:
+                row["predicted_function"] = row["zarszam_name"]
+                row["prediction_function"] = "zarszam_name"
             elif row["fid_fuzzy"]:
                 row["predicted_function"] = row["fid_fuzzy"]
                 row["prediction_function"] = "fid_fuzzy"
@@ -533,7 +591,7 @@ class ResultAnalyzer:
                     lambda x: x["prediction_function"]
                 ),
                 "method_sureness": detailed_predictions.apply(
-                    lambda x: "helyesnek elfogadott" if str(x["prediction_function"]) in ["ahtt_exact", "name_exact", "fid_exact", "name_fuzzy"] else "átnézendő"
+                    lambda x: "helyesnek elfogadott" if str(x["prediction_function"]) in PRECISE_METHODS else "átnézendő"
                 ),
                 "ahtt_exact_match": detailed_predictions.apply(
                     lambda x: x["ahtt_exact"]
@@ -545,6 +603,7 @@ class ResultAnalyzer:
                 "name_fuzzy_match": detailed_predictions.apply(
                     lambda x: x["name_fuzzy"]
                 ),
+                "zarszam_name": detailed_predictions.apply(lambda x: x["zarszam_name"]),
                 "fid_fuzzy_match": detailed_predictions.apply(lambda x: x["fid_fuzzy"]),
                 "indoklas_fuzzy": detailed_predictions.apply(
                     lambda x: x["indoklas_fuzzy"]
@@ -726,6 +785,11 @@ def main(selected_year):
     df_old_list.reverse()  # this helps to use the most recent data first
     df_old = pd.concat(df_old_list, ignore_index=True)
 
+    names_list = []
+    for year in [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]:
+        if year < selected_year:
+            names_list.append(get_zarszam_names(year))
+
     df_new = datasets[selected_year]
 
     # Filter data
@@ -752,6 +816,7 @@ def main(selected_year):
         axis=1,
         df_old=df_old,
         tfidf_data=tfidf_data_old,
+        names_list=names_list,
     )
 
     # Process results
@@ -768,5 +833,6 @@ def main(selected_year):
 
 
 if __name__ == "__main__":
-    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2024, 2025, 2026]:
+    # for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
+    for year in [2023]:
         matches_df = main(year)
