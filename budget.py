@@ -1,4 +1,5 @@
 from calendar import c
+import pprint
 import pandas as pd
 from openpyxl import load_workbook
 import re
@@ -58,8 +59,9 @@ def format_fejezet(n):
         if sum < 1:
             continue
         flist = fid.split(".")
+        func = row["predicted_function"]
         frows.append({"fid": fid, "name": name, "flist": flist, "sum": sum})
-        result.append({"fid": fid, "name": name, "sum": sum})
+        result.append({"fid": fid, "name": name, "sum": sum, "function": func})
 
     # this fills in the intermediate numbers for the hierarchy
 
@@ -306,19 +308,65 @@ while trimable_items:
 for item in new_budgetdef:
     item["formatted"] = re.sub(r"\(.*?\)$", f"({item['budget_id']})", item["formatted"])
 
+sum_by_function = {}
+for item in new_budgetdef:
+    func = item.get("function")
+    if func:
+        sum_by_function[func] = sum_by_function.get(func, 0) + item.get("sum", 0)
+
 new_budgetdef.append(
     {
         "formatted": "Kiadások összesen",
         "sum": totalsum,
-    }
+    } | sum_by_function
 )
 
+pprint.pprint(new_budgetdef[-1])
+
 df_final = pd.DataFrame(new_budgetdef)
+
+print(df_final.columns)
+
+# Reorder and ensure columns exist on df_final (not df).
+# Also drop any NaN-named columns that may have come from dict keys.
+desired_cols = [
+    '#', 'Megnevezés', 'Összesen', 'function',
+    'F01.a', 'F01.b', 'F01.c', 'F01.d', 'F01.e', 'F01.f',
+    'F02',
+    'F03.a', 'F03.b', 'F03.c', 'F03.d',
+    'F04.a', 'F04.b', 'F04.c', 'F04.d',
+    'F05.a', 'F05.b', 'F05.c', 'F05.d', 'F05.e',
+    'F06.a', 'F06.b', 'F06.c', 'F06.e', 'F06.f', 'F06.g',
+    'F07',
+    'F08.a', 'F08.b', 'F08.c', 'F08.d', 'F08.e', 'F08.f',
+    'F09',
+    'F10',
+    'F11',
+    'F12.a', 'F12.b', 'F12.c', 'F12.d',
+    'F13.a', 'F13.b',
+    'F14',
+    'F15',
+    'F16',
+]
 
 df_final["#"] = 99
 df_final["Megnevezés"] = df_final["formatted"]
 df_final["Összesen"] = df_final["sum"]
-df_final.drop(columns=["formatted", "sum", "budget_id", "name", "fid"]).to_excel(
+
+df_final = df_final.drop(columns=["formatted", "sum", "budget_id", "name", "fid"])
+
+# Drop NaN column names if any
+df_final = df_final.loc[:, [c for c in df_final.columns if pd.notna(c)]]
+
+# Create any missing desired columns with default 0
+for col in desired_cols:
+    if col not in df_final.columns:
+        df_final[col] = 0
+
+# Reorder columns
+df_final = df_final.loc[:, desired_cols]
+
+df_final.to_excel(
     "budget_generated.xlsx", index=False, sheet_name=f"{year} KIADÁS"
 )
 
