@@ -1,9 +1,9 @@
+from calendar import c
 import pandas as pd
 from openpyxl import load_workbook
 import re
-from calendar import c
 
-year = "2023"
+year = "2022"
 
 df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{year}")
 budgetdef = []
@@ -144,6 +144,15 @@ def _build_simple_code_map(items, first_level=False):
                 children_map[None] = []
             children_map[None].append(fid)
 
+    # # Simplify hierarchy: if a node has only one child, its grandchildren become its children
+    # for parent_fid, children in list(children_map.items()):
+    #     if parent_fid is not None and len(children) == 1:
+    #         child_fid = children[0]
+    #         grandchildren = children_map.get(child_fid, [])
+    #         if grandchildren:
+    #             children_map[parent_fid] = grandchildren
+    #             children_map[child_fid] = []
+
     # The fids are pre-sorted, so we can rely on their order within groups.
     # We process level by level.
 
@@ -175,16 +184,19 @@ def _build_simple_code_map(items, first_level=False):
 
 def format_items(items, starting="K1", first_level=False):
     code_map = _build_simple_code_map(items, first_level=first_level)
-    if starting == "K6":
-        pass
+    filtered_items = []
     for item in items:
         fid = item.get("fid")
         code = code_map.get(fid, "")
-        item["formatted"] = (
-            f"{item['name']} ({starting}{code})" if code else item["name"]
-        )
-        item["budget_id"] = f"{starting}{code}" if code else item["name"]
-    return items
+        if code:
+            item["formatted"] = (
+                f"{item['name']} ({starting}{code})" if code else item["name"]
+            )
+            item["budget_id"] = f"{starting}{code}" if code else item["name"]
+            filtered_items.append(item)
+        else:
+            print(f"Warning: No code for fid {fid}!")
+    return filtered_items
 
 
 def extract_budget_id(name):
@@ -271,6 +283,28 @@ for row in temp_budgetdef:
 new_budgetdef = temp_budgetdef
 
 new_budgetdef = [b for b in new_budgetdef if b.get("sum", 0) > 0]
+
+trimable_items = [b for b in new_budgetdef if b["budget_id"].endswith("01") and not any([bb for bb in new_budgetdef if bb["budget_id"] == b["budget_id"][:-2]+'02'])]
+skip_items = set()
+while trimable_items:
+    item = trimable_items[0]
+    item_id = item["budget_id"]
+    parent_item = next((bb for bb in new_budgetdef if bb["budget_id"] == item["budget_id"][:-2]), None)
+    parent_id = item["budget_id"][:-2]
+    if parent_id in [b["budget_id"] for b in budgetdef]:
+        skip_items.add(item_id)
+        trimable_items = [b for b in new_budgetdef if b["budget_id"].endswith("01") and not any([bb for bb in new_budgetdef if bb["budget_id"] == b["budget_id"][:-2]+'02']) and len(b["budget_id"]) > 2 and b["budget_id"] not in skip_items]
+        continue
+    if parent_item:
+        new_budgetdef.remove(parent_item)
+        print(f"Removed parent item {parent_item['budget_id']}")
+    for b in new_budgetdef:
+        if b["budget_id"].startswith(item_id):
+            b["budget_id"] = b["budget_id"].replace(item_id, parent_id)
+    trimable_items = [b for b in new_budgetdef if b["budget_id"].endswith("01") and not any([bb for bb in new_budgetdef if bb["budget_id"] == b["budget_id"][:-2]+'02']) and len(b["budget_id"]) > 2 and b["budget_id"] not in skip_items]
+
+for item in new_budgetdef:
+    item["formatted"] = re.sub(r"\(.*?\)$", f"({item['budget_id']})", item["formatted"])
 
 new_budgetdef.append(
     {
