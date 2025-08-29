@@ -6,11 +6,74 @@ import re
 
 year = "2022"
 
+function_connection = """
+1	Állami működési funkciók
+F01	Általános közszolgáltatások
+F01.a	 Törvényhozó és végrehajtó szervek
+F01.b	Pénzügyi és költségvetési tevékenységek és szolgáltatások
+F01.c	Külügyek
+F01.d	Alapkutatás
+F01.e	Műszaki fejlesztés
+F01.f	Egyéb általános közösségi szolgáltatások
+F02	Védelem
+F03	Rendvédelem és közbiztonság
+F03.a	Igazságszolgáltatás
+F03.b	Rend- és közbiztonság
+F03.c	Tűzvédelem
+F03.d	Büntetésvégrehajtás
+2	Jóléti funkciók
+F04	Oktatás
+F04.a	Iskolai előkészítés és alapfokú oktatás
+F04.b	Középfokú oktatás
+F04.c	Felsőfokú oktatás
+F04.d	Egyéb oktatás
+F05	Egészségügy
+F05.a	Kórházi tevékenységek és szolgáltatások
+F05.b	Háziorvosi és házi gyermekorvosi ellátás
+F05.c	Egyéb rendelői, orvosi, fogorvosi ellátás
+F05.d	Közegészségügyi tevékenységek és szolgáltatások
+F05.e	Egyéb egészségügy
+F06	Társadalombiztosítási, szociális és jóléti szolgáltatások
+F06.a	Táppénz, anyasági vagy ideiglenes rokkantsági juttatások
+F06.b	Nyugellátások
+F06.c	Egyéb társadalombiztosítási ellátások
+F06.d	Munkanélküli ellátások 
+F06.e	Családi pótlékok és gyermekeknek járó juttatások
+F06.f	Egyéb szociális támogatások
+F06.g	Jóléti szolgáltatások
+F07	Lakásügyek, települési és kommunális szolgáltatások
+F08	Szabadidős, kulturális és vallási tevékenységek és szolgáltatások
+F08.a	Sport és szabadidős tevékenységek és szolgáltatások
+F08.b	Kulturális tevékenységek és szolgáltatások
+F08.c	Műsorszórási és kiadói tevékenységek és szolgáltatások
+F08.d	Hitéleti tevékenységek
+F08.e	Párttevékenységek
+F08.f	Egyéb közösségi és szórakoztató tevékenységek
+3	Gazdasági funkciók
+F09	Tüzelő-, üzemanyag - és energiaellátás
+F10	Mező- erdő-, hal- és vadgazdálkodás
+F11	Bányászat és ipar
+F12	Közlekedés és távközlés
+F12.a	Közúti közlekedés
+F12.b	Vasúti közlekedés
+F12.c	Távközlés
+F12.d	Egyéb közlekedés és szállítás
+F13	Egyéb gazdasági tevékenységek és szolgáltatások
+F13.a	Többcélú fejlesztési programok
+F13.b	Egyéb gazdasági tevékenységek és szolgáltatások
+F14	Környezetvédelem
+4	Államadósság-kezelés
+F15	Államadósság kezelés, államháztartás finanszírozása
+5	Funkciókba nem sorolható tételek
+F16	A főcsoportokba nem sorolható tételek"""
+
+function_dict = {line.split("\t")[0]: line.split("\t")[1] for line in function_connection.strip().split("\n")}
+
 df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{year}")
 budgetdef = []
 for i, item in df_budget.iterrows():
     budgetdef.append({"name": item["Megnevezés"], "fid": item["hely"]})
-df = pd.read_excel("all_matches_combined.xlsx", year)
+df = pd.read_excel("RB_by_year.xlsx", year)
 kdf = pd.read_excel("adatok/koltsegvetesek.xlsx", sheet_name=year)
 
 distinct_fejezet = [str(f) for f in kdf["FEJEZET"].dropna().unique().tolist()]
@@ -281,6 +344,10 @@ for row in temp_budgetdef:
                 and len(row["budget_id"]) < len(item.get("budget_id", ""))
             ):
                 row["sum"] += item.get("sum", 0)
+                if "function" in item:
+                    if item["function"] not in row:
+                        row[item["function"]] = 0
+                    row[item["function"]] += item.get("sum", 0)
 
 new_budgetdef = temp_budgetdef
 
@@ -365,6 +432,12 @@ for col in desired_cols:
 
 # Reorder columns
 df_final = df_final.loc[:, desired_cols]
+
+# Rename function code columns using function_dict (keep code + append description)
+code_col_renames = {
+    col: f"{list(function_dict.keys()).index(col)+1} {function_dict[col]}" for col in df_final.columns if col in function_dict
+}
+df_final = df_final.rename(columns=code_col_renames)
 
 df_final.to_excel(
     "budget_generated.xlsx", index=False, sheet_name=f"{year} KIADÁS"
