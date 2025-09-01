@@ -69,6 +69,8 @@ F16	A főcsoportokba nem sorolható tételek"""
 
 function_dict = {line.split("\t")[0]: line.split("\t")[1] for line in function_connection.strip().split("\n")}
 
+print(function_dict)
+
 # Helper functions that rely on per-year globals (df, fid_names)
 def find_name(fid):
     for f, name in fid_names:
@@ -87,7 +89,7 @@ def format_fejezet(n):
         if sum < 1:
             continue
         flist = fid.split(".")
-        func = row["predicted_function"]
+        func = row["predicted_function"].strip(":")
         frows.append({"fid": fid, "name": name, "flist": flist, "sum": sum})
         result.append({"fid": fid, "name": name, "sum": sum, "function": func})
 
@@ -233,6 +235,7 @@ def extract_budget_id(name):
 
 def generate_for_year(year: str) -> pd.DataFrame:
     global df, fid_names  # used by helpers above
+    print(f"Generating budget for year: {year}")
 
     # Load inputs for the given year
     df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{year}")
@@ -307,6 +310,9 @@ def generate_for_year(year: str) -> pd.DataFrame:
                 )
                 new_budgetdef.extend(formatted_fejezet)
 
+    if distinct_fejezet:
+        print(f"Warning: Unmatched fejezet IDs found - {distinct_fejezet}")
+
     # Deduplicate by budget_id
     seen_budget_ids = set()
     deduplicated_budgetdef = []
@@ -345,7 +351,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
     trimable_items = [
         b for b in new_budgetdef
         if b.get("budget_id", "").endswith("01")
-        and not any([bb for bb in new_budgetdef if bb.get("budget_id") == b["budget_id"][:-2] + '02'])
+        and not any([bb for bb in new_budgetdef if bb.get("budget_id").startswith(b["budget_id"][:-2]) and bb.get("budget_id") != b["budget_id"]])
     ]
     skip_items = set()
     while trimable_items:
@@ -364,6 +370,8 @@ def generate_for_year(year: str) -> pd.DataFrame:
             ]
             continue
         if parent_item:
+            # print(f"Trimming {item_id} into {parent_id}")
+            # print(f"fids: {item.get('fid')} -> {parent_item.get('fid')}")
             new_budgetdef.remove(parent_item)
         for b in new_budgetdef:
             if b.get("budget_id", "").startswith(item_id):
@@ -381,12 +389,20 @@ def generate_for_year(year: str) -> pd.DataFrame:
         if item.get("budget_id"):
             item["formatted"] = re.sub(r"\(.*?\)$", f"({item['budget_id']})", item.get("formatted", ""))
 
+    for _, row in df.iterrows():
+        if row["fid"] not in [b.get("fid") for b in new_budgetdef]:
+            print(f"Warning: fid {row['fid']} not in budgetdef!")
+
     # Sum by function
     sum_by_function = {}
     for item in new_budgetdef:
         func = item.get("function")
         if func:
             sum_by_function[func] = sum_by_function.get(func, 0) + item.get("sum", 0)
+
+    for fcode in sum_by_function:
+        if fcode not in function_dict:
+            print(f"Warning: Unknown function code {fcode} in budgetdef!")
 
     new_budgetdef.append(
         {
@@ -395,7 +411,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
         } | sum_by_function
     )
 
-    pprint.pprint(new_budgetdef[-1])
+    # pprint.pprint(new_budgetdef[-1])
 
     df_final = pd.DataFrame(new_budgetdef)
 
@@ -407,7 +423,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
         'F03.a', 'F03.b', 'F03.c', 'F03.d',
         'F04.a', 'F04.b', 'F04.c', 'F04.d',
         'F05.a', 'F05.b', 'F05.c', 'F05.d', 'F05.e',
-        'F06.a', 'F06.b', 'F06.c', 'F06.e', 'F06.f', 'F06.g',
+        'F06.a', 'F06.b', 'F06.c', 'F06.d', 'F06.e', 'F06.f', 'F06.g',
         'F07',
         'F08.a', 'F08.b', 'F08.c', 'F08.d', 'F08.e', 'F08.f',
         'F09',
