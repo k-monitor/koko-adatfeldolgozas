@@ -311,9 +311,13 @@ A tanításhoz/kereséshez használt évek listáját pedig a következő kódr�
 
 `name_fuzzy_fallback`: Ugyanaz, mint name_fuzzy_match, csak sokkal kisebb (0.5) threshold-dal.
 
+`zarszam_name`: Korábbi évek zárszámadásaiban keres hasonló nevű előirányzatot.
+
 #### Gépi tanuláson alapuló szöveg klasszifikációs módszer
 
-`ctfidf`: Egy c-TF-IDF modell, amit korábbi évek indoklás szöveg-funkció párosain tanítottam, és szöveg alapján mond egy funkciót.
+`ctfidf`: Egy c-TF-IDF modell, amit korábbi évek indoklás szöveg-funkció párosain tanítottam, és szöveg alapján mond egy funkciót. A vektor távolságot figyelembe véve csak "közeli" találat esetén ad tippet.
+
+`ctfidf_atnezendo`: Ez a ctfidf-nek egy megengedőbb változata, ami több hibázásért cserébe többet lefed.
 
 ### Módszerek egyesítése
 
@@ -321,7 +325,7 @@ Mindig minden módszer lefut és az eredményük eltárolásra kerül.
 
 A végén, amikor a funkciókódot kell megállapítani, akkor a következő sorrendben, az első helyesnek elfogadott tipp lesz a modell döntése (predicted_function).
 
-A prioritási sorrend: `ahtt_exact_match > name_exact_match > fid_exact_match > name_fuzzy_match > indoklas_fuzzy > fid_fuzzy_match > name_fuzzy_fallback > ctfidf`
+A prioritási sorrend: `ahtt_exact_match > name_exact_match > fid_exact_match > name_fuzzy_match > zarszam_name > fid_fuzzy_match > ctfidf > ctfidf_atnezendo > indoklas_fuzzy`
 
 Nem minden módszer elég megbízható, ezért külön kezeljük azokat a tippeket, amikre jobb és külön, amikre kevésbé megbízható módszerrel jutottunk.
 
@@ -330,12 +334,14 @@ megbízható (helyesnek elfogadott):
 - name_exact_match
 - fid_exact_match
 - name_fuzzy_match
+- ctfidf
+- zarszam_name
 
 nem elég megbízható (átnézendő):
 - fid_fuzzy_match
 - indoklas_fuzzy
 - name_fuzzy_fallback
-- ctfidf
+- ctfidf_atnezendo
 
 Az alapján, hogy melyik csoport módszerét használtuk, megkülönböztetünk "helyesként számontartott" és "átnézendő" előirányzatokat.
 
