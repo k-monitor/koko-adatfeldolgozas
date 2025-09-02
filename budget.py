@@ -1,5 +1,6 @@
 from calendar import c
 import pprint
+import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 import re
@@ -85,7 +86,7 @@ def format_fejezet(n):
     for i, row in df[df["fid"].str.startswith(n)].iterrows():
         fid = row["fid"]
         name = row["name"].replace("\n", " ").replace("  ", " ")
-        sum = int(round(row["sum"]*1000))
+        sum = int(round(row["sum"]*1_000_000))
         if sum < 1:
             continue
         flist = fid.split(".")
@@ -243,7 +244,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
     for i, item in df_budget.iterrows():
         budgetdef.append({"name": item["Megnevezés"], "fid": item["hely"]})
 
-    df = pd.read_excel("RB_by_year.xlsx", year)
+    df = pd.read_excel("manuális címkézés v3.xlsx", year)
     kdf = pd.read_excel("adatok/koltsegvetesek.xlsx", sheet_name=year)
 
     distinct_fejezet = [str(f) for f in kdf["FEJEZET"].dropna().unique().tolist()]
@@ -416,8 +417,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
     df_final = pd.DataFrame(new_budgetdef)
 
     # Columns and renaming (same as existing)
-    desired_cols = [
-        '#', 'Megnevezés', 'Összesen', 'function',
+    function_cols = [
         'F01.a', 'F01.b', 'F01.c', 'F01.d', 'F01.e', 'F01.f',
         'F02',
         'F03.a', 'F03.b', 'F03.c', 'F03.d',
@@ -435,6 +435,9 @@ def generate_for_year(year: str) -> pd.DataFrame:
         'F15',
         'F16',
     ]
+    desired_cols = [
+        '#', 'Megnevezés', 'Összesen', 'function',
+    ] + function_cols
 
     df_final["#"] = 99
     df_final["Megnevezés"] = df_final["formatted"]
@@ -451,6 +454,17 @@ def generate_for_year(year: str) -> pd.DataFrame:
             df_final[col] = 0
 
     df_final = df_final.loc[:, desired_cols]
+    numeric_cols = ["Összesen"] + function_cols
+    df_final[numeric_cols] = (
+        df_final[numeric_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], 0)
+        .fillna(0)
+        .astype("int64")
+    )
+
+    for col in numeric_cols:
+        df_final[col] = df_final[col].apply(lambda x: f"{x:,}")
 
     code_col_renames = {
         col: f"{list(function_dict.keys()).index(col)+1} {function_dict[col]}"
@@ -464,7 +478,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
 if __name__ == "__main__":
     # Generate sheets for years 2020-2025 in a single Excel file
     years = [str(y) for y in range(2020, 2026)]
-    output_path = "budget_generated.xlsx"
+    output_path = "budget_generated_bignum.xlsx"
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for y in years:
