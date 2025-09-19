@@ -1,5 +1,3 @@
-from calendar import c
-import pprint
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
@@ -75,24 +73,29 @@ print(function_dict)
 # Helper functions that rely on per-year globals (df, fid_names)
 def find_name(fid):
     for f, name in fid_names:
-        if f.startswith(fid):
+        if type(name) != str:
+            continue
+        if f.startswith(fid+".0"):
             return name.replace("\n", " ").replace("  ", " ")
+    print("none for:" +fid)
     return None
 
 
-def format_fejezet(n):
+def format_fejezet(n, sumcolumn="sum"):
     result = []
     frows = []
     for i, row in df[df["fid"].str.startswith(n)].iterrows():
         fid = row["fid"]
         name = row["name"].replace("\n", " ").replace("  ", " ")
-        sum = int(round(row["sum"]*1_000_000))
+        sum = int(round(row[sumcolumn]*1_000_000))
         if sum < 1:
             continue
         flist = fid.split(".")
-        func = row["predicted_function"].strip(":")
-        frows.append({"fid": fid, "name": name, "flist": flist, "sum": sum})
-        result.append({"fid": fid, "name": name, "sum": sum, "function": func})
+        func = str(row["predicted_function"]).strip(":")
+        if func == 'nan':
+            func = ''
+        frows.append({"fid": fid, "name": name, "flist": flist, sumcolumn: sum})
+        result.append({"fid": fid, "name": name, sumcolumn: sum, "function": func})
 
     done = set()
     for level in range(1, 10):
@@ -234,12 +237,14 @@ def extract_budget_id(name):
     return match.group(1) if match else None
 
 
-def generate_for_year(year: str) -> pd.DataFrame:
+def generate_for_year(year: str, income=False) -> pd.DataFrame:
     global df, fid_names  # used by helpers above
     print(f"Generating budget for year: {year}")
+    sumcolumn = "income_sum" if income else "sum"
 
     # Load inputs for the given year
-    df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{year}")
+    type_name = "bevétel" if income else "kiadás"
+    df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{type_name}")
     budgetdef = []
     for i, item in df_budget.iterrows():
         budgetdef.append({"name": item["Megnevezés"], "fid": item["hely"]})
@@ -247,7 +252,9 @@ def generate_for_year(year: str) -> pd.DataFrame:
     df = pd.read_excel("manuális címkézés v3.xlsx", year)
     kdf = pd.read_excel("adatok/koltsegvetesek.xlsx", sheet_name=year)
 
-    distinct_fejezet = [str(f) for f in kdf["FEJEZET"].dropna().unique().tolist()]
+    print(f"sum of df for year {year}:", df[sumcolumn].sum())
+
+    distinct_fejezet = [str(int(f)) for f in kdf["FEJEZET"].dropna().unique().tolist()]
 
     # Build fid_names from kdf (for find_name)
     fejezet = "0"
@@ -256,22 +263,32 @@ def generate_for_year(year: str) -> pd.DataFrame:
     jogcim1 = "0"
     jogcim2 = "0"
     fid_names = []
+    def valid_num(field):
+        return str(field) != "nan" and str(field) and str(field) != "0"
     for index, row in kdf.iterrows():
-        if str(row["FEJEZET"]) != "nan":
+        if valid_num(row["FEJEZET"]):
+            if fejezet != str(row["FEJEZET"]).removesuffix(".0"):
+                cim = "0"
+                alcim = "0"
+                jogcim1 = "0"
+                jogcim2 = "0"
             fejezet = str(row["FEJEZET"]).removesuffix(".0")
-        if str(row["CIM"]) != "nan":
+        if valid_num(row["CIM"]):
+            if cim != str(row["CIM"]).removesuffix(".0"):
+                alcim = "0"
+                jogcim1 = "0"
+                jogcim2 = "0"
             cim = str(row["CIM"]).removesuffix(".0")
-            alcim = "0"
-            jogcim1 = "0"
-            jogcim2 = "0"
-        if str(row["ALCIM"]) != "nan":
+        if valid_num(row["ALCIM"]):
+            if alcim != str(row["ALCIM"]).removesuffix(".0"):
+                jogcim1 = "0"
+                jogcim2 = "0"
             alcim = str(row["ALCIM"]).removesuffix(".0")
-            jogcim1 = "0"
-            jogcim2 = "0"
-        if str(row["JOGCIM1"]) != "nan":
+        if valid_num(row["JOGCIM1"]):
+            if jogcim1 != str(row["JOGCIM1"]).removesuffix(".0"):
+                jogcim2 = "0"
             jogcim1 = str(row["JOGCIM1"]).removesuffix(".0")
-            jogcim2 = "0"
-        if str(row["JOGCIM2"]) != "nan":
+        if valid_num(row["JOGCIM2"]):
             jogcim2 = str(row["JOGCIM2"]).removesuffix(".0")
         fid = ".".join([fejezet, cim, alcim, jogcim1, jogcim2])
         fid_names.append((fid, row["MEGNEVEZÉS"]))
@@ -294,7 +311,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
                 distinct_fejezet.remove(fid)
             prefix = f"{index_multi + 1:02d}" if len(fids) > 1 else ""
             if fid and fid != "nan":
-                fejezet_list = format_fejezet(fid + ".")
+                fejezet_list = format_fejezet(fid + ".", sumcolumn=sumcolumn)
                 fejezet_list = [f for f in fejezet_list if f["fid"]]
                 sorted_fejezet = sorted(
                     fejezet_list, key=lambda s: tuple(int(p) for p in s["fid"].split("."))
@@ -312,7 +329,7 @@ def generate_for_year(year: str) -> pd.DataFrame:
                 new_budgetdef.extend(formatted_fejezet)
 
     if distinct_fejezet:
-        print(f"Warning: Unmatched fejezet IDs found - {distinct_fejezet}")
+        print(f"!!! Warning: Unmatched fejezet IDs found - {distinct_fejezet}")
 
     # Deduplicate by budget_id
     seen_budget_ids = set()
@@ -325,13 +342,15 @@ def generate_for_year(year: str) -> pd.DataFrame:
                 seen_budget_ids.add(budget_id)
     new_budgetdef = deduplicated_budgetdef
 
-    totalsum = sum(item.get("sum", 0) for item in new_budgetdef if item.get("sum", 0) > 0)
+    totalsum = sum(item.get(sumcolumn, 0) for item in new_budgetdef if item.get(sumcolumn, 0) > 0)
+
+    print(f"Total {type_name} sum for year {year}: {totalsum}")
 
     # Roll-up sums
     temp_budgetdef = new_budgetdef.copy()
     for row in temp_budgetdef:
-        if not row.get("sum", None):
-            row["sum"] = 0
+        if not row.get(sumcolumn, None):
+            row[sumcolumn] = 0
             for item in new_budgetdef:
                 if (
                     item.get("budget_id")
@@ -340,13 +359,13 @@ def generate_for_year(year: str) -> pd.DataFrame:
                     and item.get("budget_id") != row.get("budget_id")
                     and len(row["budget_id"]) < len(item.get("budget_id", ""))
                 ):
-                    row["sum"] += item.get("sum", 0)
+                    row[sumcolumn] += item.get(sumcolumn, 0)
                     if "function" in item:
                         if item["function"] not in row:
                             row[item["function"]] = 0
-                        row[item["function"]] += item.get("sum", 0)
+                        row[item["function"]] += item.get(sumcolumn, 0)
     new_budgetdef = temp_budgetdef
-    new_budgetdef = [b for b in new_budgetdef if b.get("sum", 0) > 0]
+    new_budgetdef = [b for b in new_budgetdef if b.get(sumcolumn, 0) > 0]
 
     # Trim single-child "01" branches
     trimable_items = [
@@ -392,14 +411,16 @@ def generate_for_year(year: str) -> pd.DataFrame:
 
     for _, row in df.iterrows():
         if row["fid"] not in [b.get("fid") for b in new_budgetdef]:
-            print(f"Warning: fid {row['fid']} not in budgetdef!")
+            pass
+            # print(f"Warning: fid {row['fid']} not in budgetdef!")
 
     # Sum by function
     sum_by_function = {}
     for item in new_budgetdef:
+        item[sumcolumn] = item.get(sumcolumn, 0)
         func = item.get("function")
         if func:
-            sum_by_function[func] = sum_by_function.get(func, 0) + item.get("sum", 0)
+            sum_by_function[func] = sum_by_function.get(func, 0) + item.get(sumcolumn, 0)
 
     for fcode in sum_by_function:
         if fcode not in function_dict:
@@ -407,8 +428,8 @@ def generate_for_year(year: str) -> pd.DataFrame:
 
     new_budgetdef.append(
         {
-            "formatted": "Kiadások összesen",
-            "sum": totalsum,
+            "formatted": "Bevételek összesen" if income else "Kiadások összesen",
+            sumcolumn: totalsum,
         } | sum_by_function
     )
 
@@ -441,9 +462,9 @@ def generate_for_year(year: str) -> pd.DataFrame:
 
     df_final["#"] = 99
     df_final["Megnevezés"] = df_final["formatted"]
-    df_final["Összesen"] = df_final["sum"]
+    df_final["Összesen"] = df_final[sumcolumn]
 
-    for col in ["formatted", "sum", "budget_id", "name", "fid"]:
+    for col in ["formatted", sumcolumn, "budget_id", "name", "fid"]:
         if col in df_final.columns:
             df_final = df_final.drop(columns=[col])
 
@@ -477,13 +498,14 @@ def generate_for_year(year: str) -> pd.DataFrame:
 
 if __name__ == "__main__":
     # Generate sheets for years 2020-2025 in a single Excel file
-    years = [str(y) for y in range(2020, 2026)]
-    output_path = "budget_generated_bignum.xlsx"
+    years = [str(y) for y in range(2020, 2027)]
+    # years = [str(y) for y in [2024]]
+    output_path = "budget.xlsx"
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for y in years:
             df_out = generate_for_year(y)
-            df_in = pd.DataFrame()
+            df_in = generate_for_year(y, income=True)
             df_out.to_excel(writer, index=False, sheet_name=f"{y} KIADÁS")
             df_in.to_excel(writer, index=False, sheet_name=f"{y} BEVÉTEL")
 
