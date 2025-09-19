@@ -85,16 +85,16 @@ USE_N2F = False
 
 # Method classification
 PRECISE_METHODS = [
-    "ahtt_exact_match",
-    "name_exact_match",
-    "fid_exact_match",
-    "name_fuzzy_match",
+    "ahtt_exact",
+    "name_exact",
+    "fid_exact",
+    "name_fuzzy",
     "zarszam_name",
     "indoklas_fuzzy",
     "ctfidf",
 ]
 IMPRECISE_METHODS = [
-    "fid_fuzzy_match",
+    "fid_fuzzy",
     "name_fuzzy_fallback",
     "ctfidf_atnezendo",
 ]
@@ -183,6 +183,7 @@ class DataLoader:
         df["indoklas"] = df["indoklas"].fillna("")
         df = df.fillna(0)
         df["sum"] = df["spending"] + df["accumulated_spending"]
+        df["income_sum"] = df["income"] + df["accumulated_income"]
         return df
 
     @staticmethod
@@ -579,7 +580,6 @@ class ResultAnalyzer:
                     lambda x: x["oldrow"]["section_name"]
                 ),
                 "fid": detailed_predictions.apply(lambda x: x["oldrow"]["fid"]),
-                "ÁHT-T": detailed_predictions.apply(lambda x: x["oldrow"]["ÁHT-T"]),
                 "name": detailed_predictions.apply(lambda x: x["oldrow"]["name"]),
                 "indoklas": detailed_predictions.apply(
                     lambda x: x["oldrow"]["indoklas"]
@@ -589,22 +589,25 @@ class ResultAnalyzer:
                 ),
                 "prediction_function": detailed_predictions.apply(
                     lambda x: x["prediction_function"]
-                ),
+                ),  
                 "method_sureness": detailed_predictions.apply(
                     lambda x: "helyesnek elfogadott" if str(x["prediction_function"]) in PRECISE_METHODS else "átnézendő"
                 ),
-                "ahtt_exact_match": detailed_predictions.apply(
+                "manuális címke": detailed_predictions.apply(
+                    lambda x: '',
+                ),
+                "ahtt_exact": detailed_predictions.apply(
                     lambda x: x["ahtt_exact"]
                 ),
-                "name_exact_match": detailed_predictions.apply(
+                "name_exact": detailed_predictions.apply(
                     lambda x: x["name_exact"]
                 ),
-                "fid_exact_match": detailed_predictions.apply(lambda x: x["fid_exact"]),
-                "name_fuzzy_match": detailed_predictions.apply(
+                "fid_exact": detailed_predictions.apply(lambda x: x["fid_exact"]),
+                "name_fuzzy": detailed_predictions.apply(
                     lambda x: x["name_fuzzy"]
                 ),
                 "zarszam_name": detailed_predictions.apply(lambda x: x["zarszam_name"]),
-                "fid_fuzzy_match": detailed_predictions.apply(lambda x: x["fid_fuzzy"]),
+                "fid_fuzzy": detailed_predictions.apply(lambda x: x["fid_fuzzy"]),
                 "indoklas_fuzzy": detailed_predictions.apply(
                     lambda x: x["indoklas_fuzzy"]
                 ),
@@ -616,10 +619,12 @@ class ResultAnalyzer:
                     lambda x: x["name_fuzzy_fallback"]
                 ),
                 "sum": detailed_predictions.apply(lambda x: x["oldrow"]["sum"]),
+                "income_sum": detailed_predictions.apply(lambda x: x["oldrow"]["income_sum"]),
                 "ctfidf_similarity": detailed_predictions.apply(
                     lambda x: x["ctfidf_distance"]
                 ),
                 "true_function": y,
+                "ÁHT-T": detailed_predictions.apply(lambda x: x["oldrow"]["ÁHT-T"]),
             }
         )
 
@@ -793,7 +798,7 @@ def main(selected_year):
     df_new = datasets[selected_year]
 
     # Filter data
-    df_new = df_new[df_new["sum"] > 0]
+    df_new = df_new[(df_new["sum"] > 0) | (df_new["income_sum"] > 0)].reset_index(drop=True)
 
     # Initialize classifier
     classifier = FunctionClassifier()
@@ -833,6 +838,13 @@ def main(selected_year):
 
 
 if __name__ == "__main__":
-    # for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
-    for year in [2023]:
+    all_matches_dfs = {}
+    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
         matches_df = main(year)
+        all_matches_dfs[year] = matches_df
+    
+    # Save all dataframes to a single Excel file with separate sheets
+    with pd.ExcelWriter("all_matches_combined.xlsx", engine='openpyxl') as writer:
+        for year, df in all_matches_dfs.items():
+            df.to_excel(writer, sheet_name=str(year), index=False)
+
