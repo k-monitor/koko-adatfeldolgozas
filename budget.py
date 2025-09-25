@@ -244,6 +244,7 @@ def generate_for_year(year: str, income=False) -> pd.DataFrame:
 
     # Load inputs for the given year
     type_name = "bevétel" if income else "kiadás"
+    print(f"Type: {type_name}")
     df_budget = pd.read_excel("budgetatnezes.xlsx", sheet_name=f"budgetdef_{type_name}")
     budgetdef = []
     for i, item in df_budget.iterrows():
@@ -307,8 +308,9 @@ def generate_for_year(year: str, income=False) -> pd.DataFrame:
             new_budgetdef.append(row)
         index_multi = 0
         for fid in fids:
-            if fid in distinct_fejezet:
-                distinct_fejezet.remove(fid)
+            first_fid = fid.split(".")[0]
+            if first_fid in distinct_fejezet:
+                distinct_fejezet.remove(first_fid)
             prefix = f"{index_multi + 1:02d}" if len(fids) > 1 else ""
             if fid and fid != "nan":
                 fejezet_list = format_fejezet(fid + ".", sumcolumn=sumcolumn)
