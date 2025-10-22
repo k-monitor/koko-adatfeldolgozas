@@ -377,6 +377,8 @@ class FunctionClassifier:
         fid = row["fid"]
         indoklas = row["indoklas"]
 
+        updated_ahtt = ahtt
+
         method_matches = {
             "ahtt_exact": None,
             "name_exact": None,
@@ -399,11 +401,13 @@ class FunctionClassifier:
         name_matches = df_old[df_old["name"].str.lower() == name.lower()]
         if not name_matches.empty:
             method_matches["name_exact"] = name_matches.iloc[0]["function"]
+            row["ÁHT-T"] = name_matches.iloc[0]["ÁHT-T"]
 
         # 3. FID exact match
         fid_matches = df_old[df_old["fid"] == fid]
         if not fid_matches.empty:
             method_matches["fid_exact"] = fid_matches.iloc[0]["function"]
+            row["ÁHT-T"] = fid_matches.iloc[0]["ÁHT-T"]
 
         # 4. Fuzzy name matching
         method_matches["name_fuzzy"] = self._fuzzy_name_match(name, df_old)
@@ -436,7 +440,7 @@ class FunctionClassifier:
                     method_matches["zarszam_name"] = match_info["assigned_function"]
 
 
-        return {**method_matches, "oldrow": row.to_dict(), "predicted_function": None, "ctfidf_distance": ctfidf_distance}
+        return {**method_matches, "oldrow": row.to_dict(), "predicted_function": None, "ctfidf_distance": ctfidf_distance, "updated_ahtt": updated_ahtt}
 
     def _fuzzy_name_match(self, name, df_old):
         """Perform fuzzy name matching."""
@@ -839,10 +843,11 @@ def main(selected_year):
 
 if __name__ == "__main__":
     all_matches_dfs = {}
-    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
+    # for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
+    for year in [2017]:
         matches_df = main(year)
         all_matches_dfs[year] = matches_df
-    
+
     # Save all dataframes to a single Excel file with separate sheets
     with pd.ExcelWriter("all_matches_combined.xlsx", engine='openpyxl') as writer:
         for year, df in all_matches_dfs.items():
