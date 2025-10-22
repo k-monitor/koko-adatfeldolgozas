@@ -205,19 +205,15 @@ class DataLoader:
         df = df[df["FEJEZET"].notna()].copy()  # Create explicit copy to avoid warnings
         df = df.fillna({"CIM": 0, "ALCIM": 0, "JOGCIM1": 0, "JOGCIM2": 0})
 
-        # Generate FIDs
-        numbered_rows = [
-            DataLoader.to_numbers(row)
-            for row in df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].itertuples(
-                index=False, name=None
-            )
-        ]
+        # Generate FIDs - use values for faster iteration
+        columns_data = df[["FEJEZET", "CIM", "ALCIM", "JOGCIM1", "JOGCIM2"]].values
+        numbered_rows = [DataLoader.to_numbers(row) for row in columns_data]
 
         filled_rows = DataLoader.fill_hierarchical_ids(numbered_rows)
         fids = [DataLoader.create_fid(row) for row in filled_rows]
 
         df["fid"] = fids
-        df["name"] = df[name_column]
+        df["name"] = df[name_column].values  # Use .values for faster assignment
 
         return df
 
@@ -271,9 +267,12 @@ class TextProcessor:
         self.stemmer = SnowballStemmer("hungarian")
         try:
             self.hungarian_stopwords = stopwords.words("hungarian")
+            # Keep as list for sklearn, but create set for fast lookup in preprocess_text
+            self.hungarian_stopwords_set = set(self.hungarian_stopwords)
         except:
             nltk.download("stopwords")
             self.hungarian_stopwords = stopwords.words("hungarian")
+            self.hungarian_stopwords_set = set(self.hungarian_stopwords)
 
     def stem(self, text):
         """Stem text."""
@@ -284,13 +283,13 @@ class TextProcessor:
         """Preprocess text for analysis."""
         if isinstance(text, str):
             words = text.lower().split()
-            return " ".join(
-                [
-                    self.stemmer.stem(word)
-                    for word in words
-                    if word not in self.hungarian_stopwords
-                ]
-            )
+            # Use set for O(1) lookup performance
+            filtered_words = [
+                self.stemmer.stem(word)
+                for word in words
+                if word not in self.hungarian_stopwords_set
+            ]
+            return " ".join(filtered_words)
         return ""
 
     def precompute_tfidf(self, documents, functions=None):
@@ -319,6 +318,11 @@ class FunctionClassifier:
         self.count_vectorizer = None
         self.ctfidf_vectorizer = None
         self.ctfidf_matrix = None
+        
+        # Caching for performance
+        self._name_lower_cache = {}
+        self._stem_cache = {}
+        self._fid_prefix_cache = {}
 
     def load_name_mappings(self):
         """Load name to function mappings."""
@@ -340,6 +344,11 @@ class FunctionClassifier:
         count = self.count_vectorizer.transform(docs_per_class.indoklas)
         self.ctfidf_vectorizer = CTFIDFVectorizer().fit(count, n_samples=len(df_old))
         self.ctfidf_matrix = self.ctfidf_vectorizer.transform(count)
+        
+        # Pre-compute and cache lowercase names and stems for faster lookup
+        self._df_old_names_lower = df_old["name"].str.lower().values
+        self._df_old_fids = df_old["fid"].values
+        self._df_old_functions = df_old["function"].values
 
     def f2c(self, f):
         """Convert function to class index."""
@@ -392,13 +401,16 @@ class FunctionClassifier:
             "zarszam_name": None,
         }
 
+        # Pre-compute lowercase name once for reuse
+        name_lower = name.lower()
+
         # 1. ÁHT-T exact match
         ahtt_matches = df_old[df_old["ÁHT-T"] == ahtt]
         if not ahtt_matches.empty:
             method_matches["ahtt_exact"] = ahtt_matches.iloc[0]["function"]
 
-        # 2. Name exact match
-        name_matches = df_old[df_old["name"].str.lower() == name.lower()]
+        # 2. Name exact match (using pre-computed lowercase)
+        name_matches = df_old[df_old["name"].str.lower() == name_lower]
         if not name_matches.empty:
             method_matches["name_exact"] = name_matches.iloc[0]["function"]
             row["ÁHT-T"] = name_matches.iloc[0]["ÁHT-T"]
@@ -409,8 +421,9 @@ class FunctionClassifier:
             method_matches["fid_exact"] = fid_matches.iloc[0]["function"]
             row["ÁHT-T"] = fid_matches.iloc[0]["ÁHT-T"]
 
-        # 4. Fuzzy name matching
-        method_matches["name_fuzzy"] = self._fuzzy_name_match(name, df_old)
+        # 4. Fuzzy name matching (only if exact matches failed)
+        if not method_matches["name_exact"]:
+            method_matches["name_fuzzy"] = self._fuzzy_name_match(name, df_old)
 
         # 5. CTFIDF classification
         ctfidf_distance = None
@@ -444,44 +457,60 @@ class FunctionClassifier:
 
     def _fuzzy_name_match(self, name, df_old):
         """Perform fuzzy name matching."""
-        name_similarities = []
-        for i, old_row in df_old.iterrows():
-            old_name = old_row["name"]
-            similarity = textdistance.algorithms.levenshtein.normalized_similarity(
-                name.lower(), old_name.lower()
+        name_lower = name.lower()
+        
+        # Use numpy vectorized operations with pre-computed lowercase names
+        similarities = np.array([
+            textdistance.algorithms.levenshtein.normalized_similarity(
+                name_lower, old_name_lower
             )
-            if similarity > 0.95:
-                name_similarities.append((i, similarity))
+            for old_name_lower in self._df_old_names_lower
+        ])
+        
+        # Find matches above threshold
+        high_sim_indices = np.where(similarities > 0.95)[0]
+        
+        if len(high_sim_indices) > 0:
+            # Get the best match
+            best_idx = high_sim_indices[np.argmax(similarities[high_sim_indices])]
+            return self._df_old_functions[best_idx]
 
-        if not name_similarities and USE_N2F:
+        if USE_N2F:
+            # Cache stem computations
+            if name not in self._stem_cache:
+                self._stem_cache[name] = self.text_processor.stem(name)
+            name_stem = self._stem_cache[name]
+            
             for name_key in self.n2f.keys():
                 if (
                     textdistance.algorithms.levenshtein.normalized_similarity(
-                        self.text_processor.stem(name), name_key
+                        name_stem, name_key
                     )
                     > 0.95
                 ):
                     return self.n2f[name_key]
 
-        if name_similarities:
-            name_similarities.sort(key=lambda x: x[1], reverse=True)
-            i, _ = name_similarities[0]
-            return df_old.iloc[i]["function"]
-
         return None
 
     def _fuzzy_fid_match(self, fid, df_old):
         """Perform fuzzy FID matching."""
-        fid_similarities = []
-        search_fid = ".".join(fid.split(".")[:-1]) + "."
-
-        for i, old_row in df_old.iterrows():
-            if old_row["fid"].startswith(search_fid):
-                similarity = fid.count(".") / old_row["fid"].count(".")
-                fid_similarities.append((i, similarity))
-
-        if fid_similarities:
-            cnt = Counter([df_old.iloc[i]["function"] for i, s in fid_similarities])
+        # Cache FID prefix computation
+        if fid not in self._fid_prefix_cache:
+            self._fid_prefix_cache[fid] = ".".join(fid.split(".")[:-1]) + "."
+        search_fid = self._fid_prefix_cache[fid]
+        
+        # Vectorized prefix matching
+        fid_dot_count = fid.count(".")
+        matching_indices = []
+        
+        for i, old_fid in enumerate(self._df_old_fids):
+            if old_fid.startswith(search_fid):
+                matching_indices.append(i)
+        
+        if matching_indices:
+            # Count function occurrences
+            matching_functions = [self._df_old_functions[i] for i in matching_indices]
+            cnt = Counter(matching_functions)
             if cnt.most_common(1):
                 return cnt.most_common(1)[0][0]
 
@@ -516,19 +545,23 @@ class FunctionClassifier:
 
     def _fallback_name_match(self, name, df_old):
         """Perform fallback name matching with lower threshold."""
-        name_similarities = []
-        for i, old_row in df_old.iterrows():
-            old_name = old_row["name"]
-            similarity = textdistance.algorithms.levenshtein.normalized_similarity(
-                name.lower(), old_name.lower()
+        name_lower = name.lower()
+        
+        # Use numpy vectorized operations with pre-computed lowercase names
+        similarities = np.array([
+            textdistance.algorithms.levenshtein.normalized_similarity(
+                name_lower, old_name_lower
             )
-            if similarity > 0.2:
-                name_similarities.append((i, similarity))
-
-        if name_similarities:
-            name_similarities.sort(key=lambda x: x[1], reverse=True)
-            i, _ = name_similarities[0]
-            return df_old.iloc[i]["function"]
+            for old_name_lower in self._df_old_names_lower
+        ])
+        
+        # Find matches above threshold
+        high_sim_indices = np.where(similarities > 0.2)[0]
+        
+        if len(high_sim_indices) > 0:
+            # Get the best match
+            best_idx = high_sim_indices[np.argmax(similarities[high_sim_indices])]
+            return self._df_old_functions[best_idx]
 
         return None
 
@@ -539,8 +572,11 @@ class ResultAnalyzer:
     @staticmethod
     def process_predictions(detailed_predictions):
         """Process predictions to determine final function."""
-
-        def process_row(row):
+        # Convert to list for faster iteration
+        predictions_list = detailed_predictions.tolist()
+        
+        # Process in bulk
+        for row in predictions_list:
             if row["ahtt_exact"]:
                 row["predicted_function"] = row["ahtt_exact"]
                 row["prediction_function"] = "ahtt_exact"
@@ -571,66 +607,46 @@ class ResultAnalyzer:
             else:
                 row["predicted_function"] = None
                 row["prediction_function"] = None
-            return row
-
-        return detailed_predictions.apply(lambda row: process_row(row))
+        
+        return pd.Series(predictions_list, index=detailed_predictions.index)
 
     @staticmethod
     def create_matches_dataframe(detailed_predictions, y):
         """Create matches dataframe from predictions."""
-        return pd.DataFrame(
-            {
-                "section_name": detailed_predictions.apply(
-                    lambda x: x["oldrow"]["section_name"]
-                ),
-                "fid": detailed_predictions.apply(lambda x: x["oldrow"]["fid"]),
-                "name": detailed_predictions.apply(lambda x: x["oldrow"]["name"]),
-                "indoklas": detailed_predictions.apply(
-                    lambda x: x["oldrow"]["indoklas"]
-                ),
-                "predicted_function": detailed_predictions.apply(
-                    lambda x: x["predicted_function"]
-                ),
-                "prediction_function": detailed_predictions.apply(
-                    lambda x: x["prediction_function"]
-                ),  
-                "method_sureness": detailed_predictions.apply(
-                    lambda x: "helyesnek elfogadott" if str(x["prediction_function"]) in PRECISE_METHODS else "átnézendő"
-                ),
-                "manuális címke": detailed_predictions.apply(
-                    lambda x: '',
-                ),
-                "ahtt_exact": detailed_predictions.apply(
-                    lambda x: x["ahtt_exact"]
-                ),
-                "name_exact": detailed_predictions.apply(
-                    lambda x: x["name_exact"]
-                ),
-                "fid_exact": detailed_predictions.apply(lambda x: x["fid_exact"]),
-                "name_fuzzy": detailed_predictions.apply(
-                    lambda x: x["name_fuzzy"]
-                ),
-                "zarszam_name": detailed_predictions.apply(lambda x: x["zarszam_name"]),
-                "fid_fuzzy": detailed_predictions.apply(lambda x: x["fid_fuzzy"]),
-                "indoklas_fuzzy": detailed_predictions.apply(
-                    lambda x: x["indoklas_fuzzy"]
-                ),
-                "ctfidf": detailed_predictions.apply(lambda x: x["ctfidf"]),
-                "ctfidf_atnezendo": detailed_predictions.apply(
-                    lambda x: x["ctfidf_atnezendo"]
-                ),
-                "name_fuzzy_fallback": detailed_predictions.apply(
-                    lambda x: x["name_fuzzy_fallback"]
-                ),
-                "sum": detailed_predictions.apply(lambda x: x["oldrow"]["sum"]),
-                "income_sum": detailed_predictions.apply(lambda x: x["oldrow"]["income_sum"]),
-                "ctfidf_similarity": detailed_predictions.apply(
-                    lambda x: x["ctfidf_distance"]
-                ),
-                "true_function": y,
-                "ÁHT-T": detailed_predictions.apply(lambda x: x["oldrow"]["ÁHT-T"]),
-            }
-        )
+        # Convert Series of dicts to list for faster access
+        predictions_list = detailed_predictions.tolist()
+        
+        # Extract all values in single pass
+        data = {
+            "section_name": [x["oldrow"]["section_name"] for x in predictions_list],
+            "fid": [x["oldrow"]["fid"] for x in predictions_list],
+            "name": [x["oldrow"]["name"] for x in predictions_list],
+            "indoklas": [x["oldrow"]["indoklas"] for x in predictions_list],
+            "predicted_function": [x["predicted_function"] for x in predictions_list],
+            "prediction_function": [x["prediction_function"] for x in predictions_list],
+            "method_sureness": [
+                "helyesnek elfogadott" if str(x["prediction_function"]) in PRECISE_METHODS else "átnézendő"
+                for x in predictions_list
+            ],
+            "manuális címke": [''] * len(predictions_list),
+            "ahtt_exact": [x["ahtt_exact"] for x in predictions_list],
+            "name_exact": [x["name_exact"] for x in predictions_list],
+            "fid_exact": [x["fid_exact"] for x in predictions_list],
+            "name_fuzzy": [x["name_fuzzy"] for x in predictions_list],
+            "zarszam_name": [x["zarszam_name"] for x in predictions_list],
+            "fid_fuzzy": [x["fid_fuzzy"] for x in predictions_list],
+            "indoklas_fuzzy": [x["indoklas_fuzzy"] for x in predictions_list],
+            "ctfidf": [x["ctfidf"] for x in predictions_list],
+            "ctfidf_atnezendo": [x["ctfidf_atnezendo"] for x in predictions_list],
+            "name_fuzzy_fallback": [x["name_fuzzy_fallback"] for x in predictions_list],
+            "sum": [x["oldrow"]["sum"] for x in predictions_list],
+            "income_sum": [x["oldrow"]["income_sum"] for x in predictions_list],
+            "ctfidf_similarity": [x["ctfidf_distance"] for x in predictions_list],
+            "true_function": y,
+            "ÁHT-T": [x["oldrow"]["ÁHT-T"] for x in predictions_list],
+        }
+        
+        return pd.DataFrame(data)
 
     @staticmethod
     def analyze_results(matches_df, selected_year):
@@ -801,16 +817,17 @@ def main(selected_year):
 
     df_new = datasets[selected_year]
 
-    # Filter data
-    df_new = df_new[(df_new["sum"] > 0) | (df_new["income_sum"] > 0)].reset_index(drop=True)
+    # Filter data - use vectorized boolean indexing
+    mask = (df_new["sum"] > 0) | (df_new["income_sum"] > 0)
+    df_new = df_new[mask].reset_index(drop=True)
 
     # Initialize classifier
     classifier = FunctionClassifier()
     classifier.setup_ctfidf_classifier(df_old)
 
-    # Prepare TF-IDF data
-    processed_indoklas_old = (
-        df_old["indoklas"].fillna("").apply(classifier.text_processor.preprocess_text)
+    # Prepare TF-IDF data - indoklas already filled with "" in preprocess_df
+    processed_indoklas_old = df_old["indoklas"].apply(
+        classifier.text_processor.preprocess_text
     )
     tfidf_data_old = classifier.text_processor.precompute_tfidf(
         processed_indoklas_old, df_old["function"]
@@ -843,8 +860,7 @@ def main(selected_year):
 
 if __name__ == "__main__":
     all_matches_dfs = {}
-    # for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
-    for year in [2017]:
+    for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
         matches_df = main(year)
         all_matches_dfs[year] = matches_df
 
