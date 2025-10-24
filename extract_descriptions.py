@@ -8,6 +8,7 @@ import json
 from tqdm import tqdm
 import traceback
 import logging
+import time
 from typing import Tuple, Any
 from utils.pdf_extractor import get_page_lenth
 
@@ -32,73 +33,124 @@ logger.info(f"using api key: ***{api_key[-5:]}")
 EXCEL_FILE = "adatok/koltsegvetesek.xlsx"
 PROCESSED_DIR = "indoklasok/feldolgozott"
 EXTRACTED_DIR = "indoklasok/szovegek"
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-2.5-flash-preview-09-2025"
 YEARS = [
-    # "2016",
-    # "2017",
+    "2016",
+    "2017",
     # "2018",
     # "2019",
     # "2020",
     # "2021",
     # "2022",
-    "2023",
+    # "2023",
     # "2024",
     # "2025",
     # "2026",
 ]
+# Maximum pages before splitting (to avoid Gemini token limits)
+# Gemini has ~1M token context, ~100 pages ≈ 200k tokens
 MAX_PAGES_PER_SPLIT = 100
+
+# Minimum text length to consider extraction successful
+# Chosen based on typical indoklás length (usually 1-2 paragraphs)
 MIN_TEXT_LENGTH = 80
+
+# Success threshold for non-split sections
+# Set to 80% to allow for some sections without descriptions
 SUCCESS_THRESHOLD = 0.8
+
+# Retry attempts for API failures
 MAX_RETRIES = 4
+
+
+def log_error(context: str, error: Exception, include_traceback: bool = True) -> None:
+    """Standardized error logging."""
+    logger.error(f"{context}: {error}")
+    if include_traceback:
+        logger.error(traceback.format_exc())
+
+
+def validate_extracted_text(text_item: dict, expected_section: int) -> bool:
+    """Validate extracted text item."""
+    if not text_item.get("id") or not text_item.get("text"):
+        return False
+    
+    # Check ID format matches expected section
+    if not text_item["id"].startswith(f"{expected_section}."):
+        logger.warning(f"ID {text_item['id']} doesn't match section {expected_section}")
+        return False
+    
+    # Check text quality
+    text = text_item["text"].strip()
+    if len(text) < MIN_TEXT_LENGTH:
+        return False
+    
+    # Check for common extraction errors (too many encoding errors)
+    if text.count("�") > 5:
+        logger.warning(f"Text for {text_item['id']} has encoding issues")
+        return False
+    
+    return True
 
 
 def generate(prompt: str, file_path: str, temp: float) -> Any:
     """Generate content using Gemini API."""
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-    files = [client.files.upload(file=file_path)]
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_uri(
-                    file_uri=files[0].uri,
-                    mime_type=files[0].mime_type,
-                ),
-                types.Part.from_text(text=prompt),
-            ],
-        ),
-    ]
-
-    generate_content_config = types.GenerateContentConfig(
-        temperature=temp,
-        thinking_config=types.ThinkingConfig(thinking_budget=1024),
-        response_mime_type="application/json",
-        response_schema=genai.types.Schema(
-            type=genai.types.Type.OBJECT,
-            required=["texts"],
-            properties={
-                "texts": genai.types.Schema(
-                    type=genai.types.Type.ARRAY,
-                    items=genai.types.Schema(
-                        type=genai.types.Type.OBJECT,
-                        required=["id", "text"],
-                        properties={
-                            "id": genai.types.Schema(type=genai.types.Type.STRING),
-                            "text": genai.types.Schema(type=genai.types.Type.STRING),
-                        },
+    uploaded_file = None
+    try:
+        uploaded_file = client.files.upload(file=file_path)
+        files = [uploaded_file]
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_uri(
+                        file_uri=files[0].uri,
+                        mime_type=files[0].mime_type,
                     ),
-                ),
-            },
-        ),
-    )
+                    types.Part.from_text(text=prompt),
+                ],
+            ),
+        ]
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=contents,
-        config=generate_content_config,
-    )
-    return response
+        generate_content_config = types.GenerateContentConfig(
+            temperature=temp,
+            thinking_config=types.ThinkingConfig(thinking_budget=1024),
+            response_mime_type="application/json",
+            response_schema=genai.types.Schema(
+                type=genai.types.Type.OBJECT,
+                required=["texts"],
+                properties={
+                    "texts": genai.types.Schema(
+                        type=genai.types.Type.ARRAY,
+                        items=genai.types.Schema(
+                            type=genai.types.Type.OBJECT,
+                            required=["id", "text"],
+                            properties={
+                                "id": genai.types.Schema(type=genai.types.Type.STRING),
+                                "text": genai.types.Schema(type=genai.types.Type.STRING),
+                            },
+                        ),
+                    ),
+                },
+            ),
+        )
+
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=contents,
+            config=generate_content_config,
+        )
+        return response
+    finally:
+        # Clean up uploaded file
+        if uploaded_file:
+            try:
+                client.files.delete(name=uploaded_file.name)
+                logger.debug(f"Deleted uploaded file: {uploaded_file.name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete uploaded file: {e}")
 
 
 def to_roman_numeral(num: int) -> str:
@@ -182,14 +234,13 @@ def get_deduplicated_rows(df: pd.DataFrame) -> list[str]:
         ):
             deduplicated_rows.append(row)
 
-    str_rows = [
-        ".".join([str(i) for i in row])
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        for row in deduplicated_rows
-    ]
+    # Clean up redundant .0 patterns
+    str_rows = []
+    for row in deduplicated_rows:
+        fid = ".".join([str(i) for i in row])
+        while ".0" in fid:
+            fid = fid.replace(".0", "")
+        str_rows.append(fid)
     return str_rows
 
 
@@ -291,24 +342,32 @@ def extract_text_from_section(
     logger.info(f"Filtered rows: {filtered_rows}, start_from: {start_from}")
 
     # Try different prompts and temperatures
-    success = []
+    extraction_quality = []
     data = None
+    temperatures = [0, 0.3, 0.5, 0.7]
+    
     for attempt in range(MAX_RETRIES):
-        temp = 0.5 if attempt == 1 else 0
+        temp = temperatures[min(attempt, len(temperatures)-1)]
         prompt = get_prompt(roman_section, filtered_rows, names, is_part)
 
         try:
+            # Add exponential backoff delay for retries
+            if attempt > 0:
+                delay = min(2 ** attempt, 10)  # Max 10 seconds
+                logger.info(f"Waiting {delay}s before retry {attempt + 1}/{MAX_RETRIES}")
+                time.sleep(delay)
+            
             generated = generate(prompt, pdf_file, temp)
             data = generated.parsed
 
             if data and "texts" in data and len(data["texts"]) > 0:
-                success = [
+                extraction_quality = [
                     1 if len(t["text"].strip()) > MIN_TEXT_LENGTH else 0
                     for t in data["texts"]
                 ]
-                logger.info(f"Generated success: {success}")
+                logger.info(f"Extraction quality: {extraction_quality}")
 
-                if sum(success) / len(success) > SUCCESS_THRESHOLD or is_part:
+                if extraction_quality and (sum(extraction_quality) / len(extraction_quality) > SUCCESS_THRESHOLD or is_part):
                     break
             else:
                 logger.warning(
@@ -317,23 +376,26 @@ def extract_text_from_section(
                 continue
 
         except Exception as e:
-            logger.error(f"Error processing section {section}, attempt {attempt}: {e}")
+            log_error(f"Error processing section {section}, attempt {attempt}", e, include_traceback=False)
             continue
 
-    if not success or not data:
+    if not extraction_quality or not data:
         logger.error(f"Failed to extract text from section {section}")
         return 0, []
 
-    last_success = max([i for i, s in enumerate(success) if s == 1], default=-1)
-    logger.info(f"Last success: {last_success}")
+    last_success_idx = max([i for i, s in enumerate(extraction_quality) if s == 1], default=-1)
+    logger.info(f"Last successful extraction index: {last_success_idx}")
 
-    # Process results and convert roman numerals back to numbers
+    # Process results and convert roman numerals back to numbers, with validation
     extracted_texts = []
     for text in data["texts"]:
         text["id"] = text["id"].replace(roman_section, str(section))
-        extracted_texts.append(text)
+        if validate_extracted_text(text, section):
+            extracted_texts.append(text)
+        else:
+            logger.warning(f"Skipping invalid text: {text.get('id', 'unknown')}")
 
-    return last_success, extracted_texts
+    return last_success_idx, extracted_texts
 
 
 def process_dataframe(df: pd.DataFrame) -> Tuple[list[str], dict[str, str]]:
@@ -376,15 +438,13 @@ def process_dataframe(df: pd.DataFrame) -> Tuple[list[str], dict[str, str]]:
         prev_filled_row = new_filled_row
 
     # Create FIDs
-    fids = [
-        ".".join([str(i) for i in row])
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        .replace(".0", "")
-        for row in filled_rows
-    ]
-    df["fid"] = fids
+    str_rows = []
+    for row in filled_rows:
+        fid = ".".join([str(i) for i in row])
+        while ".0" in fid:
+            fid = fid.replace(".0", "")
+        str_rows.append(fid)
+    df["fid"] = str_rows
 
     # Clean up FIDs
     df["fid"] = df["fid"].str.replace(r"\.0$", "", regex=True)
@@ -422,7 +482,8 @@ def process_year(year: str) -> None:
 
         for title, section in tqdm(section_structures):
             section_number = from_roman_numeral(title.split(" ")[0].strip("."))
-            section_pdf_file = "indoklasok/feldolgozott/"+section["file_path"]
+            # Use file_path directly - it already contains the full path
+            section_pdf_file = section["file_path"]
 
             try:
                 page_count = get_page_lenth(section_pdf_file)
@@ -437,20 +498,22 @@ def process_year(year: str) -> None:
                     )
                     logger.info(f"Split PDF into {len(split_files)} parts.")
 
-                    last_success = 0
+                    last_success_idx = 0
                     for i, split_file in enumerate(split_files):
                         logger.info(f"Processing split file: {split_file}")
-                        last_success, section_texts = extract_text_from_section(
+                        last_idx, section_texts = extract_text_from_section(
                             split_file,
                             section_number,
                             deduplicated_rows,
                             names_by_fid,
                             excel_sheet,
-                            start_from=last_success,
+                            start_from=last_success_idx,
                             part=i,
                         )
                         all_extracted_texts.extend(section_texts)
-                        last_success += len(section_texts)
+                        # Move forward by the number of items we successfully processed
+                        if last_idx >= 0:
+                            last_success_idx += (last_idx + 1)  # +1 because index is 0-based
                 else:
                     _, section_texts = extract_text_from_section(
                         section_pdf_file,
@@ -462,8 +525,7 @@ def process_year(year: str) -> None:
                     all_extracted_texts.extend(section_texts)
 
             except Exception as e:
-                logger.error(f"Error processing section {section_number}: {e}")
-                logger.error(traceback.format_exc())
+                log_error(f"Error processing section {section_number}", e)
                 continue
 
         # Save all extracted texts for the year in one CSV file
@@ -479,8 +541,7 @@ def process_year(year: str) -> None:
             logger.warning(f"No texts extracted for year {year}")
 
     except Exception as e:
-        logger.error(f"Error processing year {year}: {e}")
-        logger.error(traceback.format_exc())
+        log_error(f"Error processing year {year}", e)
 
 
 def main() -> None:
