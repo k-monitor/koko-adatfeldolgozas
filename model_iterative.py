@@ -812,7 +812,7 @@ def main(selected_year):
 
     names_list = []
     for year in [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]:
-        if year < selected_year:
+        if year != selected_year:
             names_list.append(get_zarszam_names(year))
 
     df_new = datasets[selected_year]
@@ -860,12 +860,115 @@ def main(selected_year):
 
 if __name__ == "__main__":
     all_matches_dfs = {}
+    all_stats = {}
+    
     for year in [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]:
         matches_df = main(year)
         all_matches_dfs[year] = matches_df
+        
+        # Calculate stats for this year
+        matches_df["is_correct"] = (
+            matches_df["predicted_function"] == matches_df["true_function"]
+        )
+        
+        # Precise methods stats
+        precise_mask_raw = pd.Series(False, index=matches_df.index)
+        for method in PRECISE_METHODS:
+            precise_mask_raw |= matches_df[method].notnull()
+        
+        precise_correct = pd.Series(False, index=matches_df.index)
+        for method in PRECISE_METHODS:
+            method_mask = matches_df[method].notnull()
+            precise_correct |= (matches_df[method] == matches_df["true_function"]) & method_mask
+        
+        precise_accuracy = precise_correct.sum() / precise_mask_raw.sum() if precise_mask_raw.sum() > 0 else 0
+        precise_coverage = precise_mask_raw.sum() / len(matches_df)
+        precise_sum_accuracy = matches_df[precise_correct]["sum"].sum() / matches_df[precise_mask_raw]["sum"].sum() if matches_df[precise_mask_raw]["sum"].sum() > 0 else 0
+        precise_sum_coverage = matches_df[precise_mask_raw]["sum"].sum() / matches_df["sum"].sum()
+        
+        # Imprecise methods stats (excluding cases covered by precise methods)
+        imprecise_mask = pd.Series(False, index=matches_df.index)
+        for method in IMPRECISE_METHODS:
+            imprecise_mask |= matches_df[method].notnull()
+        imprecise_mask = imprecise_mask & ~precise_mask_raw
+        
+        imprecise_correct = pd.Series(False, index=matches_df.index)
+        for method in IMPRECISE_METHODS:
+            method_mask = matches_df[method].notnull() & imprecise_mask
+            imprecise_correct |= (matches_df[method] == matches_df["true_function"]) & method_mask
+        
+        imprecise_accuracy = imprecise_correct.sum() / imprecise_mask.sum() if imprecise_mask.sum() > 0 else 0
+        imprecise_sum_accuracy = matches_df[imprecise_correct]["sum"].sum() / matches_df[imprecise_mask]["sum"].sum() if matches_df[imprecise_mask]["sum"].sum() > 0 else 0
+        imprecise_sum_coverage = matches_df[imprecise_mask]["sum"].sum() / matches_df[~precise_mask_raw]["sum"].sum() if matches_df[~precise_mask_raw]["sum"].sum() > 0 else 0
+        
+        # Individual method stats
+        method_stats = {}
+        all_methods = PRECISE_METHODS + IMPRECISE_METHODS
+        for method in all_methods:
+            mask = matches_df[method].notnull()
+            if mask.sum() > 0:
+                accuracy = (matches_df[method] == matches_df["true_function"]).sum() / mask.sum()
+                coverage = mask.sum() / len(matches_df)
+                sum_accuracy = matches_df[matches_df[method] == matches_df["true_function"]]["sum"].sum() / matches_df[mask]["sum"].sum()
+                sum_coverage = matches_df[mask]["sum"].sum() / matches_df["sum"].sum()
+                
+                method_stats[method] = {
+                    'accuracy': accuracy,
+                    'coverage': coverage,
+                    'sum_accuracy': sum_accuracy,
+                    'sum_coverage': sum_coverage
+                }
+            else:
+                method_stats[method] = {
+                    'accuracy': 0,
+                    'coverage': 0,
+                    'sum_accuracy': 0,
+                    'sum_coverage': 0
+                }
+        
+        all_stats[year] = {
+            'precise_accuracy': precise_accuracy,
+            'precise_coverage': precise_coverage,
+            'precise_sum_accuracy': precise_sum_accuracy,
+            'precise_sum_coverage': precise_sum_coverage,
+            'imprecise_accuracy': imprecise_accuracy,
+            'imprecise_sum_accuracy': imprecise_sum_accuracy,
+            'imprecise_sum_coverage': imprecise_sum_coverage,
+            'method_stats': method_stats
+        }
 
     # Save all dataframes to a single Excel file with separate sheets
     with pd.ExcelWriter("all_matches_combined.xlsx", engine='openpyxl') as writer:
         for year, df in all_matches_dfs.items():
             df.to_excel(writer, sheet_name=str(year), index=False)
+    
+    # Write comparison table to markdown file
+    years = sorted(all_stats.keys())
+    with open("results_comparison.md", "w", encoding="utf-8") as f:
+        # Header row
+        f.write("| year | " + " | ".join(str(y) for y in years) + " |\n")
+        f.write("| :---- | " + " | ".join([":----"] * len(years)) + " |\n")
+        
+        # Main metrics
+        f.write("| helyesként számontartott accuracy | " + " | ".join(f"{all_stats[y]['precise_accuracy']:.4f}" for y in years) + " |\n")
+        f.write("| helyesként számontartott coverage | " + " | ".join(f"{all_stats[y]['precise_coverage']:.4f}" for y in years) + " |\n")
+        f.write("| helyesként számontartott sum accuracy | " + " | ".join(f"{all_stats[y]['precise_sum_accuracy']:.4f}" for y in years) + " |\n")
+        f.write("| helyesként számontartott sum coverage | " + " | ".join(f"{all_stats[y]['precise_sum_coverage']:.4f}" for y in years) + " |\n")
+        f.write("| átnézendő accuracy | " + " | ".join(f"{all_stats[y]['imprecise_accuracy']:.4f}" for y in years) + " |\n")
+        f.write("| átnézendő coverage | " + " | ".join(f"{1-all_stats[y]['precise_coverage']:.4f}" for y in years) + " |\n")
+        f.write("| átnézendő sum accuracy | " + " | ".join(f"{all_stats[y]['imprecise_sum_accuracy']:.4f}" for y in years) + " |\n")
+        f.write("| átnézendő sum coverage | " + " | ".join(f"{1-all_stats[y]['precise_sum_coverage']:.4f}" for y in years) + " |\n")
+        f.write("|  | " + " | ".join([""] * len(years)) + " |\n")
+        
+        # Individual method stats
+        all_methods = PRECISE_METHODS + IMPRECISE_METHODS
+        for method in all_methods:
+            f.write(f"| {method} accuracy | " + " | ".join(f"{all_stats[y]['method_stats'][method]['accuracy']:.4f}" for y in years) + " |\n")
+            f.write(f"| {method} coverage | " + " | ".join(f"{all_stats[y]['method_stats'][method]['coverage']:.4f}" for y in years) + " |\n")
+            f.write(f"| {method} sum accuracy | " + " | ".join(f"{all_stats[y]['method_stats'][method]['sum_accuracy']:.4f}" for y in years) + " |\n")
+            f.write(f"| {method} sum coverage | " + " | ".join(f"{all_stats[y]['method_stats'][method]['sum_coverage']:.4f}" for y in years) + " |\n")
+    
+    print("\n" + "="*60)
+    print("Results comparison saved to results_comparison.md")
+    print("="*60)
 
